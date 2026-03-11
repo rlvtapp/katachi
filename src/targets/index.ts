@@ -1,7 +1,7 @@
-import type { OutputTarget } from "../core/types";
-import { emitAskamaComponent, emitAskamaPartial } from "./askama";
-import { emitReactComponent } from "./react";
-import { emitStaticJsxComponent } from "./static-jsx";
+import type { OutputTarget } from "../core/types.js";
+import { emitAskamaComponent, emitAskamaPartial } from "./askama.js";
+import { emitReactComponent } from "./react.js";
+import { emitStaticJsxComponent } from "./static-jsx.js";
 
 /**
  * Central registry for output formats. The build driver only depends on this interface.

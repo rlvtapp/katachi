@@ -2,9 +2,9 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { BuildTemplate, ComponentRegistry } from "./types";
-import { parseTemplateFile } from "./parser";
-import { outputTargets } from "../targets";
+import type { BuildTemplate, ComponentRegistry } from "./types.js";
+import { parseTemplateFile } from "./parser.js";
+import { outputTargets } from "../targets/index.js";
 
 export interface BuildProjectOptions {
   projectRoot?: string;

@@ -1,4 +1,4 @@
-import type { ClassValue, TemplateNode } from "./index";
+import type { ClassValue, TemplateNode } from "./index.js";
 
 declare global {
   namespace JSX {

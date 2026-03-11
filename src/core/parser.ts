@@ -1,4 +1,4 @@
-import type { AttrValue, ClassItem, Expr, Node } from "./ast";
+import type { AttrValue, ClassItem, Expr, Node } from "./ast.js";
 import {
   and,
   classList,
@@ -20,8 +20,8 @@ import {
   textAttr,
   textNode,
   v,
-} from "./ast";
-import type { ParsedTemplate, ParseNodesResult, TemplateImport, TemplateProp } from "./types";
+} from "./ast.js";
+import type { ParsedTemplate, ParseNodesResult, TemplateImport, TemplateProp } from "./types.js";
 
 /**
  * Handwritten parser for Katachi's current restricted TSX subset.

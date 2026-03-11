@@ -1,12 +1,12 @@
-import type { AttrValue, Node } from "../core/ast";
-import type { BuildTemplate } from "../core/types";
+import type { AttrValue, Node } from "../core/ast.js";
+import type { BuildTemplate } from "../core/types.js";
 import {
   emitAskamaExpr,
   escapeDoubleQuotes,
   toCamelCase,
   toRustType,
   wrapHtmlAttribute,
-} from "./shared";
+} from "./shared.js";
 
 /**
  * Emits an HTML attribute for Askama output.

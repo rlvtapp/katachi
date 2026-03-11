@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 
-import { buildProject } from "../core/build";
-import { verifyAskamaFixtures } from "../core/verify";
-import { basicExampleRoot, createExampleFixtures, exampleFixtures } from "../core/example-fixtures";
+import { buildProject } from "../core/build.js";
+import { verifyAskamaFixtures } from "../core/verify.js";
+import { basicExampleRoot, createExampleFixtures, exampleFixtures } from "../core/example-fixtures.js";
 
 type Command = "build" | "verify:askama" | "verify:examples" | "help";
 

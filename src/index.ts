@@ -1,10 +1,10 @@
-export { buildProject } from "./core/build";
-export type { BuildProjectOptions, BuildProjectResult } from "./core/build";
+export { buildProject } from "./core/build.js";
+export type { BuildProjectOptions, BuildProjectResult } from "./core/build.js";
 
-export { parseTemplateFile } from "./core/parser";
-export { verifyAskamaFixtures, normalizeAskama } from "./core/verify";
+export { parseTemplateFile } from "./core/parser.js";
+export { verifyAskamaFixtures, normalizeAskama } from "./core/verify.js";
 
-export * from "./api";
+export * from "./api/index.js";
 export type {
   BuildTemplate,
   ComponentRegistration,
@@ -14,6 +14,6 @@ export type {
   TargetOutputFile,
   TemplateImport,
   TemplateProp,
-} from "./core/types";
+} from "./core/types.js";
 
-export * from "./core/ast";
+export * from "./core/ast.js";

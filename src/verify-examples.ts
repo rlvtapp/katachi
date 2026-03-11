@@ -1,6 +1,6 @@
-import { buildProject } from "./core/build";
-import { verifyAskamaFixtures } from "./core/verify";
-import { basicExampleRoot, exampleFixtures } from "./core/example-fixtures";
+import { buildProject } from "./core/build.js";
+import { verifyAskamaFixtures } from "./core/verify.js";
+import { basicExampleRoot, exampleFixtures } from "./core/example-fixtures.js";
 
 /**
  * Verifies a small public Askama fixture set that ships with the repository.

@@ -1,4 +1,4 @@
-import type { Node } from "./ast";
+import type { Node } from "./ast.js";
 
 /**
  * Describes a component import discovered in a template source file.

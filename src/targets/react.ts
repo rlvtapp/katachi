@@ -1,6 +1,6 @@
-import type { AttrValue, Node } from "../core/ast";
-import type { BuildTemplate } from "../core/types";
-import { buildTsxComponentSource, emitTsxExpr, emitTsxNode } from "./shared";
+import type { AttrValue, Node } from "../core/ast.js";
+import type { BuildTemplate } from "../core/types.js";
+import { buildTsxComponentSource, emitTsxExpr, emitTsxNode } from "./shared.js";
 
 /**
  * Emits attributes for React-compatible TSX output.

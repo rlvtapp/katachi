@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import type { Fixture } from "./verify";
+import type { Fixture } from "./verify.js";
 
 const rootDir = fileURLToPath(new URL("../..", import.meta.url));
 

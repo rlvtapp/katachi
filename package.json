@@ -14,22 +14,26 @@
 	"bugs": {
 		"url": "https://github.com/rlvtapp/katachi/issues"
 	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
 	"bin": {
 		"katachi": "./bin/katachi.mjs"
 	},
 	"exports": {
-		".": "./src/index.ts",
-		"./jsx": "./src/api/jsx.d.ts"
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./jsx": "./dist/api/jsx.d.ts"
 	},
 	"files": [
 		"bin",
-		"src",
+		"dist",
 		"docs",
 		"examples",
 		"README.md",
 		"LICENSE",
-		"CONTRIBUTING.md",
-		"tsconfig.json"
+		"CONTRIBUTING.md"
 	],
 	"publishConfig": {
 		"access": "public"
@@ -46,19 +50,20 @@
 		"tsx"
 	],
 	"scripts": {
-		"build": "pnpm exec tsx src/cli/index.ts build --project ./examples/basic",
+		"build": "pnpm run build:package && pnpm run build:examples",
+		"build:package": "pnpm exec tsc -p tsconfig.build.json && node ./scripts/finalize-package.mjs",
+		"build:examples": "pnpm exec tsx src/cli/index.ts build --project ./examples/basic",
 		"dev": "pnpm exec tsx watch src/cli/index.ts build --project ./examples/basic",
 		"start": "pnpm exec tsx src/cli/index.ts build --project ./examples/basic",
 		"test": "pnpm exec tsx --test tests/**/*.test.ts",
 		"typecheck": "pnpm exec tsc -p tsconfig.json",
 		"verify:askama": "pnpm exec tsx src/cli/index.ts verify:examples",
-		"verify:examples": "pnpm exec tsx src/cli/index.ts verify:examples"
-	},
-	"dependencies": {
-		"tsx": "^4.21.0"
+		"verify:examples": "pnpm exec tsx src/cli/index.ts verify:examples",
+		"prepublishOnly": "pnpm test && pnpm typecheck && pnpm run build:package"
 	},
 	"devDependencies": {
 		"@types/node": "^22.19.15",
+		"tsx": "^4.21.0",
 		"typescript": "^5.9.3"
 	}
 }

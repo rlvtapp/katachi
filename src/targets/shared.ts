@@ -1,5 +1,5 @@
-import type { AttrValue, Expr, Node } from "../core/ast";
-import type { BuildTemplate } from "../core/types";
+import type { AttrValue, Expr, Node } from "../core/ast.js";
+import type { BuildTemplate } from "../core/types.js";
 
 /**
  * Escapes a string for insertion into Rust string literals used by Askama wrappers.
