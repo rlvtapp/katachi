@@ -1,0 +1,24 @@
+<div class="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
+  <table class="min-w-full divide-y divide-slate-200">
+    <thead>
+      <tr>
+        {% for cell in head %}
+          <th class="bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+            {{ cell|safe }}
+          </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr class="odd:bg-white even:bg-slate-50/60">
+          {% for cell in row %}
+            <td class="px-4 py-3 text-sm text-slate-700">
+              {{ cell|safe }}
+            </td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

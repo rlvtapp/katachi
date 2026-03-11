@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node", "@relevate/katachi/jsx"]
+  },
+  "include": ["src"]
+}
