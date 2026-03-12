@@ -9,9 +9,10 @@ Today it can emit:
 - static-oriented TSX components
 - Askama Rust wrapper files
 - Askama include partials
+- Shopify Liquid snippets
 
 Katachi is still early, but it is already usable if you need one component
-source that can target both React-style environments and Askama.
+source that can target React-style environments, Askama, or Shopify Liquid.
 
 ## Getting Started
 
@@ -77,6 +78,7 @@ By default, Katachi writes:
 - `dist/jsx-static`
 - `dist/askama`
 - `dist/askama/includes`
+- `dist/liquid/snippets`
 
 If you want custom paths:
 
@@ -132,6 +134,7 @@ By default, build output goes to:
 - `dist/jsx-static/**/*.tsx`
 - `dist/askama/**/*.rs`
 - `dist/askama/includes/**/*.html`
+- `dist/liquid/snippets/**/*.liquid`
 
 Nested templates preserve their relative directory layout.
 
@@ -142,11 +145,11 @@ Nested templates preserve their relative directory layout.
 - dynamic `class` and `className` arrays
 - `If`
 - `For`
-- `safe(...)`
 - nested components
 - React output
 - static-oriented TSX output
 - Askama output
+- Shopify Liquid snippet output
 
 ## Why Katachi Exists
 

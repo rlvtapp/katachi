@@ -248,6 +248,10 @@ export function toRustType(type: string): string {
       return "i64";
     case "children":
       return "&'a str";
+    case "children[]":
+      return "&'a [&'a str]";
+    case "children[][]":
+      return "&'a [&'a [&'a str]]";
     case "string[]":
       return "&'a [&'a str]";
     case "string[][]":
@@ -267,6 +271,10 @@ export function toTsType(type: string): string {
       return "number";
     case "children":
       return "ReactNode";
+    case "children[]":
+      return "ReactNode[]";
+    case "children[][]":
+      return "ReactNode[][]";
     default:
       return type;
   }

@@ -29,7 +29,7 @@ export type AttrValue =
 export type Node =
   | { kind: "text"; value: string }
   | { kind: "slot"; name: string }
-  | { kind: "print"; expr: Expr; safe?: boolean }
+  | { kind: "print"; expr: Expr }
   | { kind: "if"; test: Expr; then: Node[]; else?: Node[] }
   | {
       kind: "for";
@@ -66,7 +66,7 @@ export const classList = (...items: ClassItem[]): AttrValue => ({ kind: "classLi
 
 export const textNode = (value: string): Node => ({ kind: "text", value });
 export const slotNode = (name: string): Node => ({ kind: "slot", name });
-export const printNode = (expr: Expr, safe = false): Node => ({ kind: "print", expr, safe });
+export const printNode = (expr: Expr): Node => ({ kind: "print", expr });
 export const ifNode = (test: Expr, thenNodes: Node[], elseNodes: Node[] = []): Node => ({
   kind: "if",
   test,

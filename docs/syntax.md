@@ -21,7 +21,7 @@ A template file should export:
 Example:
 
 ```tsx
-import { For, If, isEmpty, len, safe, type TemplateNode } from "@relevate/katachi";
+import { For, If, isEmpty, len, type TemplateNode } from "@relevate/katachi";
 
 export type Props = {
   title: string;
@@ -34,7 +34,7 @@ export default function Example({ title, rows, children }: Props) {
     <section>
       <h2>{title}</h2>
       <For each={rows} as="row">
-        <div>{safe(row[0])}</div>
+        <div>{row[0]}</div>
       </For>
       <If test={len(rows) == 0}>
         <p>Empty</p>
@@ -119,15 +119,26 @@ Optional index binding:
 </For>
 ```
 
-### `safe(...)`
+### `TemplateNode`
 
-Use `safe(...)` for raw/safe HTML output.
+Use `TemplateNode` for props or children that carry markup-like content.
 
 ```tsx
-import { safe } from "@relevate/katachi";
+import type { TemplateNode } from "@relevate/katachi";
 
-<div>{safe(value)}</div>
+type Props = {
+  title_html: TemplateNode;
+  children?: TemplateNode;
+};
+
+<h2>{title_html}</h2>
+<div>{children}</div>
 ```
+
+For Askama output, `TemplateNode` values are treated as markup content and are
+emitted with `|safe`. On Liquid output, they are emitted as plain Liquid
+output, so trusted or sanitized HTML should be handled before it reaches the
+target.
 
 ### Portable helpers
 
@@ -203,7 +214,6 @@ portable helpers in new Katachi templates:
 - `TemplateNode`
 - `If`
 - `For`
-- `safe`
 - `len`
 - `isEmpty`
 - `isSome`

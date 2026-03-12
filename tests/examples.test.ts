@@ -27,7 +27,7 @@ test("public basic example builds all targets and matches Askama fixtures", () =
     });
 
     assert.equal(result.templates.length, 8);
-    assert.equal(result.writtenFiles.length, 32);
+    assert.equal(result.writtenFiles.length, 40);
 
     const reactNoticePanelPath = join(copiedExampleRoot, "dist", "react", "notice-panel.tsx");
     const askamaResourceTilePath = join(
@@ -37,17 +37,28 @@ test("public basic example builds all targets and matches Askama fixtures", () =
       "includes",
       "resource-tile.html",
     );
+    const liquidGlyphPath = join(
+      copiedExampleRoot,
+      "dist",
+      "liquid",
+      "snippets",
+      "glyph.liquid",
+    );
 
     assert.ok(existsSync(reactNoticePanelPath));
     assert.ok(existsSync(askamaResourceTilePath));
+    assert.ok(existsSync(liquidGlyphPath));
 
     const reactNoticePanel = readFileSync(reactNoticePanelPath, "utf8");
     const askamaResourceTile = readFileSync(askamaResourceTilePath, "utf8");
+    const liquidGlyph = readFileSync(liquidGlyphPath, "utf8");
 
     assert.match(reactNoticePanel, /import Glyph from "\.\/glyph";/);
     assert.match(reactNoticePanel, /className=\{\["rounded-3xl border px-5 py-4 backdrop-blur-sm"/);
     assert.match(askamaResourceTile, /{% include "\.\/includes\/glyph\.html" %}/);
     assert.match(askamaResourceTile, /{{ title_html\|safe }}/);
+    assert.match(liquidGlyph, /<svg/);
+    assert.match(liquidGlyph, /data-name='{{ name }}'/);
 
     process.exitCode = undefined;
 

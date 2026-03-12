@@ -124,6 +124,9 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
           importedTemplate.relativePath.replace(/\.template\.tsx$/, ""),
         ),
         include: toRelativeIncludePath(template.relativePath, importedTemplate.relativePath),
+        liquidSnippet: importedTemplate.relativePath
+          .replace(/\.template\.tsx$/, "")
+          .replaceAll("\\", "/"),
       };
     }
 

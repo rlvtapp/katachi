@@ -8,6 +8,20 @@ import {
   wrapHtmlAttribute,
 } from "./shared.js";
 
+type ValueTypeMap = Record<string, string>;
+
+function inferEachItemType(type: string | undefined): string | undefined {
+  if (type === "children[]") return "children";
+  if (type === "children[][]") return "children[]";
+  if (type === "string[]") return "string";
+  if (type === "string[][]") return "string[]";
+  return undefined;
+}
+
+function shouldPrintSafe(node: Extract<Node, { kind: "print" }>, valueTypes: ValueTypeMap): boolean {
+  return node.expr.kind === "var" && valueTypes[node.expr.name] === "children";
+}
+
 /**
  * Emits an HTML attribute for Askama output.
  */
@@ -40,6 +54,7 @@ export function emitAskama(
   node: Node,
   indent = 0,
   componentRegistry: BuildTemplate["componentRegistry"] = {},
+  valueTypes: ValueTypeMap = {},
 ): string {
   const pad = "  ".repeat(indent);
 
@@ -49,13 +64,13 @@ export function emitAskama(
     case "slot":
       return `${pad}{{ ${node.name}|safe }}`;
     case "print":
-      return `${pad}{{ ${emitAskamaExpr(node.expr)}${node.safe ? "|safe" : ""} }}`;
+      return `${pad}{{ ${emitAskamaExpr(node.expr)}${shouldPrintSafe(node, valueTypes) ? "|safe" : ""} }}`;
     case "if": {
       const thenPart = node.then
-        .map((child) => emitAskama(child, indent + 1, componentRegistry))
+        .map((child) => emitAskama(child, indent + 1, componentRegistry, valueTypes))
         .join("\n");
       const elsePart = (node.else ?? [])
-        .map((child) => emitAskama(child, indent + 1, componentRegistry))
+        .map((child) => emitAskama(child, indent + 1, componentRegistry, valueTypes))
         .join("\n");
       if (elsePart) {
         return `${pad}{% if ${emitAskamaExpr(node.test)} %}\n${thenPart}\n${pad}{% else %}\n${elsePart}\n${pad}{% endif %}`;
@@ -63,8 +78,12 @@ export function emitAskama(
       return `${pad}{% if ${emitAskamaExpr(node.test)} %}\n${thenPart}\n${pad}{% endif %}`;
     }
     case "for": {
+      const loopValueTypes = { ...valueTypes };
+      loopValueTypes[node.item] = inferEachItemType(
+        node.each.kind === "var" ? valueTypes[node.each.name] : undefined,
+      ) ?? "string";
       const body = node.children
-        .map((child) => emitAskama(child, indent + 1, componentRegistry))
+        .map((child) => emitAskama(child, indent + 1, componentRegistry, loopValueTypes))
         .join("\n");
       return `${pad}{% for ${node.item} in ${emitAskamaExpr(node.each)} %}\n${body}\n${pad}{% endfor %}`;
     }
@@ -76,7 +95,7 @@ export function emitAskama(
             .join("\n")}\n${pad}`
         : "";
       const children = (node.children ?? []).map((child) =>
-        emitAskama(child, indent + 1, componentRegistry),
+        emitAskama(child, indent + 1, componentRegistry, valueTypes),
       );
 
       if (children.length === 0) {
@@ -110,7 +129,7 @@ export function emitAskama(
         lines.push(`${pad}{% let children %}`);
         lines.push(
           ...(node.children ?? []).map((child) =>
-            emitAskama(child, indent + 1, componentRegistry),
+            emitAskama(child, indent + 1, componentRegistry, valueTypes),
           ),
         );
         lines.push(`${pad}{% endlet %}`);
@@ -133,10 +152,12 @@ export function emitAskamaComponent(template: BuildTemplate): string {
   const fields = props
     .map((prop) => `    pub ${toCamelCase(prop.name)}: ${toRustType(prop.type)},`)
     .join("\n");
+  const valueTypes = Object.fromEntries(props.map((prop) => [prop.name, prop.type]));
   const source = emitAskama(
     template.template,
     0,
     template.componentRegistry ?? {},
+    valueTypes,
   ).replace(/#"/g, '#\\"');
 
   return `use askama::Template;
@@ -155,5 +176,6 @@ ${fields}
 }
 
 export function emitAskamaPartial(template: BuildTemplate): string {
-  return `${emitAskama(template.template, 0, template.componentRegistry ?? {})}\n`;
+  const valueTypes = Object.fromEntries((template.props ?? []).map((prop) => [prop.name, prop.type]));
+  return `${emitAskama(template.template, 0, template.componentRegistry ?? {}, valueTypes)}\n`;
 }

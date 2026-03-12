@@ -4,6 +4,7 @@ import test from "node:test";
 import type { BuildTemplate } from "../src/core/types";
 import { parseTemplateFile } from "../src/core/parser";
 import { emitAskamaPartial } from "../src/targets/askama";
+import { emitLiquidSnippet } from "../src/targets/liquid";
 import { emitReactComponent } from "../src/targets/react";
 import { emitStaticJsxComponent } from "../src/targets/static-jsx";
 
@@ -17,6 +18,7 @@ function buildTemplate(source: string): BuildTemplate {
       Icon: {
         reactImport: "./icon",
         include: "./includes/icon.html",
+        liquidSnippet: "icon",
       },
     },
   };
@@ -114,6 +116,24 @@ export default function Example({ icon }: Props) {
   assert.match(askamaOutput, /{% let className = "h-4 w-4" %}/);
 });
 
+test("Askama emitter treats TemplateNode-typed props as safe output", () => {
+  const template = buildTemplate(`
+import type { TemplateNode } from "@relevate/katachi";
+
+export type Props = {
+  title_html: TemplateNode;
+};
+
+export default function Example({ title_html }: Props) {
+  return <h2>{title_html}</h2>;
+}
+`);
+
+  const output = emitAskamaPartial(template);
+
+  assert.match(output, /{{ title_html\|safe }}/);
+});
+
 test("portable helpers lower to Askama and React target syntax", () => {
   const template = buildTemplate(`
 import { If, isEmpty, isNone, isSome, len, type TemplateNode } from "@relevate/katachi";
@@ -152,4 +172,43 @@ export default function Example({ items, label, errorMessage, children }: Props)
   assert.match(askamaOutput, /{% if items\.len\(\) == 0 %}/);
   assert.match(askamaOutput, /{% if label\.is_some\(\) && !\(label\.is_empty\(\)\) %}/);
   assert.match(askamaOutput, /{% if errorMessage\.is_none\(\) %}/);
+});
+
+test("Liquid emitter lowers nested components and portable helpers to Shopify snippets", () => {
+  const template = buildTemplate(`
+import { If, isEmpty, isNone, isSome, len, type TemplateNode } from "@relevate/katachi";
+import Icon from "./icon.template";
+
+export type Props = {
+  items: TemplateNode[];
+  label?: TemplateNode;
+  errorMessage?: string;
+  children?: TemplateNode;
+};
+
+export default function Example({ items, label, errorMessage, children }: Props) {
+  return (
+    <section className={["base", isSome(label) && "has-label"]}>
+      <Icon icon={label} size="16" />
+      <If test={len(items) == 0}>
+        <p>{label}</p>
+      </If>
+      <If test={isNone(errorMessage) || isEmpty(errorMessage)}>
+        <span>No details</span>
+      </If>
+      {children}
+    </section>
+  );
+}
+`);
+
+  const output = emitLiquidSnippet(template);
+
+  assert.match(output, /{% render 'icon', icon: label, size: "16" %}/);
+  assert.match(output, /class='base {% if label != nil %}has-label{% endif %}'/);
+  assert.match(output, /{% if items\.size == 0 %}/);
+  assert.match(output, /{{ label }}/);
+  assert.match(output, /{% if __katachi_cond_/);
+  assert.match(output, /errorMessage == nil/);
+  assert.match(output, /errorMessage == blank/);
 });

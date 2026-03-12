@@ -50,14 +50,6 @@ export function For<T>(_props: ForProps<T>): TemplateNode {
 }
 
 /**
- * Marks a printed value as safe in Katachi templates. This is a no-op at the
- * API layer because escaping is handled by target emitters.
- */
-export function safe<T>(value: T): T {
-  return value;
-}
-
-/**
  * Portable length helper for Katachi templates.
  */
 export function len(

@@ -118,11 +118,13 @@ By default, Katachi writes:
 - `dist/jsx-static/**/*.tsx`
 - `dist/askama/**/*.rs`
 - `dist/askama/includes/**/*.html`
+- `dist/liquid/snippets/**/*.liquid`
 
 Typical usage:
 
 - use `dist/react` in your editor or React app
 - use `dist/askama` and `dist/askama/includes` in your Rust/Askama app
+- use `dist/liquid/snippets` in Shopify themes or other Liquid consumers
 
 If you are evaluating Katachi for a shared component library, this is the
 normal model: author once, then consume the generated output from each target

@@ -59,19 +59,23 @@ export default function Card({ active, label, children }: Props) {
     });
 
     assert.equal(result.templates.length, 2);
-    assert.equal(result.writtenFiles.length, 8);
+    assert.equal(result.writtenFiles.length, 10);
 
     const reactOutputPath = join(distDir, "react", "nested", "card.tsx");
     const askamaIncludePath = join(distDir, "askama", "includes", "nested", "card.html");
+    const liquidOutputPath = join(distDir, "liquid", "snippets", "nested", "card.liquid");
 
     assert.ok(existsSync(reactOutputPath));
     assert.ok(existsSync(askamaIncludePath));
+    assert.ok(existsSync(liquidOutputPath));
 
     const reactOutput = readFileSync(reactOutputPath, "utf8");
     const askamaInclude = readFileSync(askamaIncludePath, "utf8");
+    const liquidOutput = readFileSync(liquidOutputPath, "utf8");
 
     assert.match(reactOutput, /import Icon from "\.\.\/icon";/);
     assert.match(askamaInclude, /{% include "\.\.\/includes\/icon\.html" %}/);
+    assert.match(liquidOutput, /{% render 'icon', icon: label %}/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

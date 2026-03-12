@@ -536,8 +536,6 @@ function parseNodes(source: string, startIndex = 0, untilTagName: string | null 
       if (inner) {
         if (inner === "children") {
           nodes.push(slotNode(inner));
-        } else if (inner.startsWith("safe(") && inner.endsWith(")")) {
-          nodes.push(printNode(parseExpr(inner.slice(5, -1)), true));
         } else {
           nodes.push(printNode(parseExpr(inner)));
         }
@@ -572,6 +570,20 @@ function normalizePropType(type: string): string {
     type === "TemplateNode"
   ) {
     return "children";
+  }
+  if (
+    type === "ReactNode[]" ||
+    type === "React.ReactNode[]" ||
+    type === "TemplateNode[]"
+  ) {
+    return "children[]";
+  }
+  if (
+    type === "ReactNode[][]" ||
+    type === "React.ReactNode[][]" ||
+    type === "TemplateNode[][]"
+  ) {
+    return "children[][]";
   }
   if (type === "ClassValue") {
     return "string";

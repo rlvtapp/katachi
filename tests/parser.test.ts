@@ -5,7 +5,7 @@ import { parseTemplateFile } from "../src/core/parser";
 
 test("parseTemplateFile lowers components, control flow, slots, class lists, and helpers", () => {
   const source = `
-import { If, For, isNone, isSome, len, safe, type TemplateNode } from "@relevate/katachi";
+import { If, For, isNone, isSome, len, type TemplateNode } from "@relevate/katachi";
 import Icon from "./icon.template";
 
 export type Props = {
@@ -21,7 +21,7 @@ export default function Example({ variant, rows, message, fallback, children }: 
     <div className={["base", variant == "note" && "note"]}>
       <Icon icon="search" size="16" />
       <If test={variant == "warning" && isSome(message)}>
-        <p>{safe(message)}</p>
+        <p>{message}</p>
       </If>
       <If test={len(rows) == 0}>
         <p>Empty</p>
@@ -30,7 +30,7 @@ export default function Example({ variant, rows, message, fallback, children }: 
         <p>No fallback</p>
       </If>
       <For each={rows} as="row" index="i">
-        <span>{safe(row)}</span>
+        <span>{row}</span>
       </For>
       {children}
     </div>
