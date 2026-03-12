@@ -126,6 +126,13 @@ pnpm exec katachi build
 
 That generates target-specific files under `dist/`.
 
+If you are working inside the Katachi source repository itself, use the local
+bin entrypoint instead:
+
+```bash
+node ./bin/katachi.mjs build --project ./examples/basic
+```
+
 ## What Katachi Generates
 
 By default, build output goes to:
