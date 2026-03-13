@@ -103,6 +103,19 @@ function cssStringToReactStyle(css: string): string {
 }
 
 /**
+ * Emits an expression for use inside a string context (template literal).
+ * `and` expressions are converted to ternaries so that `false` doesn't
+ * render as the literal string "false".
+ * e.g., `!isEmpty(color) && color` → `!isEmpty(color) ? color : ""`
+ */
+function emitStringConcatExpr(expr: Expr): string {
+  if (expr.kind === "and") {
+    return `(${emitTsxExpr(expr.left)} ? ${emitTsxExpr(expr.right)} : "")`;
+  }
+  return emitTsxExpr(expr);
+}
+
+/**
  * Emits a concat AttrValue as a React-compatible expression.
  * For style attributes, converts to CSSProperties object.
  * For other attributes, emits as template literal.
@@ -117,7 +130,7 @@ function emitConcatValue(parts: Expr[], attrName: string): string {
     if (part.kind === "string") {
       return part.value;
     }
-    return `\${${emitTsxExpr(part)}}`;
+    return `\${${emitStringConcatExpr(part)}}`;
   });
   return `{\`${segments.join("")}\`}`;
 }
@@ -199,11 +212,11 @@ function emitConcatStyle(parts: Expr[]): string {
       return `${reactProp}: ${JSON.stringify(valueParts[0].value)}`;
     }
     if (valueParts.length === 1) {
-      return `${reactProp}: ${emitTsxExpr(valueParts[0])}`;
+      return `${reactProp}: ${emitStringConcatExpr(valueParts[0])}`;
     }
     // Multiple parts: use template literal
     const segments = valueParts.map((p) =>
-      p.kind === "string" ? p.value : `\${${emitTsxExpr(p)}}`,
+      p.kind === "string" ? p.value : `\${${emitStringConcatExpr(p)}}`,
     );
     return `${reactProp}: \`${segments.join("")}\``;
   });

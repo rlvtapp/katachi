@@ -10,6 +10,8 @@ export interface BuildProjectOptions {
   projectRoot?: string;
   distDir?: string;
   templatesDir?: string;
+  /** Emit only the specified target IDs. When omitted, all targets are emitted. */
+  targets?: string[];
   logger?: Pick<Console, "log">;
 }
 
@@ -77,6 +79,19 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
   const logger = options.logger ?? console;
   const writtenFiles: string[] = [];
 
+  const allTargetIds = outputTargets.map((t) => t.id);
+  let activeTargets = outputTargets;
+
+  if (options.targets && options.targets.length > 0) {
+    const unknown = options.targets.filter((t) => !allTargetIds.includes(t));
+    if (unknown.length > 0) {
+      throw new Error(
+        `Unknown target(s): ${unknown.join(", ")}. Available: ${allTargetIds.join(", ")}`,
+      );
+    }
+    activeTargets = outputTargets.filter((t) => options.targets!.includes(t.id));
+  }
+
   mkdirSync(distDir, { recursive: true });
 
   const templateFiles = collectTemplateFiles(templatesDir);
@@ -133,7 +148,7 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
     template.componentRegistry = componentRegistry;
     const templateDir = dirname(template.relativePath);
 
-    for (const target of outputTargets) {
+    for (const target of activeTargets) {
       for (const output of target.emitFiles(template)) {
         const outputPath = join(distDir, target.outputSubdir, templateDir, output.fileName);
         mkdirSync(dirname(outputPath), { recursive: true });

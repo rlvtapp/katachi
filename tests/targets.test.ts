@@ -480,6 +480,85 @@ export default function Example({ variant, active }: Props) {
   assert.match(output, /#{{ variant }}-link/);
 });
 
+// Regression: conditional isEmpty inside concat style arrays (Icon template pattern)
+test("React emitter handles conditional isEmpty expressions in concat style arrays", () => {
+  const template = buildTemplate(`
+import { isEmpty } from "@relevate/katachi";
+
+export type Props = {
+  icon: string;
+  size: string;
+  color: string;
+};
+
+export default function Icon({ icon, size, color }: Props) {
+  return (
+    <svg
+      style={[
+        "background-color: ",
+        !isEmpty(color) && color,
+        isEmpty(color) && "currentColor",
+        "; width: ",
+        !isEmpty(size) && size,
+        isEmpty(size) && "24",
+        "px;",
+      ]}
+    ></svg>
+  );
+}
+`);
+
+  const output = emitReactComponent(template);
+
+  // Must NOT contain raw "isEmpty(" — all intrinsics should be compiled
+  assert.doesNotMatch(output, /isEmpty\(/);
+
+  // Style must be a CSSProperties object, not an array
+  assert.doesNotMatch(output, /style=\{\[/);
+
+  // Should contain camelCase CSS properties
+  assert.match(output, /backgroundColor/);
+  assert.match(output, /width/);
+
+  // Conditional parts should use ternaries (not && which produces "false" in strings)
+  assert.match(output, /\? color : ""/);
+  assert.match(output, /\? "currentColor" : ""/);
+  assert.match(output, /\? size : ""/);
+  assert.match(output, /\? "24" : ""/);
+});
+
+// Regression: parseExpr must parse `!fn(x) && y` as `and(not(fn(x)), y)` not `not(and(fn(x), y))`
+test("parseExpr handles negated intrinsic in && expression with correct precedence", () => {
+  const template = buildTemplate(`
+import { isEmpty } from "@relevate/katachi";
+
+export type Props = {
+  value: string;
+};
+
+export default function Example({ value }: Props) {
+  return <div data-x={[!isEmpty(value) && value]} />;
+}
+`);
+
+  assert.equal(template.template.kind, "element");
+  if (template.template.kind !== "element") throw new Error("expected element");
+
+  const attr = template.template.attrs?.["data-x"];
+  assert.ok(attr);
+  assert.equal(attr?.kind, "concat");
+  if (attr?.kind !== "concat") throw new Error("expected concat");
+
+  // The single part should be: and(not(isEmpty(value)), value)
+  const part = attr.parts[0];
+  assert.equal(part.kind, "and");
+  if (part.kind !== "and") throw new Error("expected and");
+  assert.equal(part.left.kind, "not");
+  if (part.left.kind !== "not") throw new Error("expected not");
+  assert.equal(part.left.expr.kind, "intrinsic");
+  assert.equal(part.right.kind, "var");
+});
+
 test("Liquid emitter lowers nested components and portable helpers to Shopify snippets", () => {
   const template = buildTemplate(`
 import { If, isEmpty, isNone, isSome, len, type TemplateNode } from "@relevate/katachi";

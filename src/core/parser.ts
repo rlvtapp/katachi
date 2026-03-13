@@ -237,14 +237,9 @@ function parseExpr(source: string): Expr {
     return n(Number(input));
   }
 
-  if (input.startsWith("!(") && input.endsWith(")")) {
-    return not(parseExpr(input.slice(2, -1)));
-  }
-
-  if (input.startsWith("!") && !input.startsWith("!=")) {
-    return not(parseExpr(input.slice(1)));
-  }
-
+  // Binary operators are searched BEFORE unary `!` because they have lower
+  // precedence.  `!isEmpty(x) && y` must split at `&&` first, yielding
+  // `and(not(isEmpty(x)), y)` — not `not(and(isEmpty(x), y))`.
   for (const operator of ["||", "&&", "===", "!==", "==", "!="]) {
     const operatorIndex = findTopLevelOperator(input, operator);
     if (operatorIndex !== -1) {
@@ -255,6 +250,14 @@ function parseExpr(source: string): Expr {
       if (operator === "===" || operator === "==") return eq(left, right);
       return neq(left, right);
     }
+  }
+
+  if (input.startsWith("!(") && input.endsWith(")")) {
+    return not(parseExpr(input.slice(2, -1)));
+  }
+
+  if (input.startsWith("!") && !input.startsWith("!=")) {
+    return not(parseExpr(input.slice(1)));
   }
 
   if (
