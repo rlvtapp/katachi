@@ -3,6 +3,7 @@ import {
   and,
   classList,
   componentNode,
+  concatAttr,
   elementNode,
   eq,
   exprAttr,
@@ -286,24 +287,99 @@ function parseExpr(source: string): Expr {
   return raw(input);
 }
 
+function findLastTopLevelOperator(input: string, operator: string): number {
+  let depthParen = 0;
+  let depthBracket = 0;
+  let depthBrace = 0;
+  let quote: string | null = null;
+  let lastIndex = -1;
+
+  for (let index = 0; index <= input.length - operator.length; index += 1) {
+    const char = input[index];
+    const next = input[index + 1];
+
+    if (quote) {
+      if (char === "\\" && next) {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "(") depthParen += 1;
+    if (char === ")") depthParen -= 1;
+    if (char === "[") depthBracket += 1;
+    if (char === "]") depthBracket -= 1;
+    if (char === "{") depthBrace += 1;
+    if (char === "}") depthBrace -= 1;
+
+    if (
+      depthParen === 0 &&
+      depthBracket === 0 &&
+      depthBrace === 0 &&
+      input.slice(index, index + operator.length) === operator
+    ) {
+      lastIndex = index;
+    }
+  }
+
+  return lastIndex;
+}
+
 function parseClassList(source: string): AttrValue {
   const input = source.trim();
   const listBody = input.slice(1, -1);
   const items: ClassItem[] = splitTopLevel(listBody, ",").map((item) => {
-    if (item.includes("&&")) {
-      const parts = item.split("&&");
-      const test = parts[0] ?? "";
-      const value = parts.slice(1).join("&&");
+    const trimmed = item.trim();
+
+    // Conditional class: `expr && "class-name"`
+    // Use the LAST top-level && so that chained conditions like
+    // `isSome(x) && !isEmpty(x) && "cls"` correctly split into
+    // test=`isSome(x) && !isEmpty(x)` and value=`"cls"`
+    const andIndex = findLastTopLevelOperator(trimmed, "&&");
+    if (andIndex !== -1) {
+      const test = trimmed.slice(0, andIndex).trim();
+      const value = trimmed.slice(andIndex + 2).trim();
       return {
-        kind: "when",
+        kind: "when" as const,
         test: parseExpr(test),
         value: unquote(value),
       };
     }
 
+    // Bare quoted string: "class-name" or 'class-name'
+    const unquoted = unquote(trimmed);
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      return {
+        kind: "static" as const,
+        value: unquoted,
+      };
+    }
+
+    // Bare identifier or expression: className, someVar, etc.
+    // These are dynamic class items (variable references)
+    if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(trimmed)) {
+      return {
+        kind: "dynamic" as const,
+        expr: v(trimmed),
+      };
+    }
+
+    // Any other expression (function calls, etc.)
     return {
-      kind: "static",
-      value: unquote(item),
+      kind: "dynamic" as const,
+      expr: parseExpr(trimmed),
     };
   });
 
@@ -321,6 +397,12 @@ function parseAttrValue(name: string, source: string): AttrValue {
       inner.endsWith("]")
     ) {
       return parseClassList(inner);
+    }
+    // Non-class array attributes: parse as concat (e.g., href={["#", variant, "-icon"]})
+    if (inner.startsWith("[") && inner.endsWith("]")) {
+      const arrayBody = inner.slice(1, -1);
+      const parts = splitTopLevel(arrayBody, ",").map((part) => parseExpr(part.trim()));
+      return concatAttr(...parts);
     }
     return exprAttr(parseExpr(inner));
   }

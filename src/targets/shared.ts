@@ -78,6 +78,8 @@ export function emitTsxExpr(expr: Expr): string {
           return `(${emittedArg} != null)`;
         case "isNone":
           return `(${emittedArg} == null)`;
+        default:
+          return emittedArg;
       }
     }
     case "raw":
@@ -120,6 +122,8 @@ export function emitAskamaExpr(expr: Expr): string {
           return `${emittedArg}.is_some()`;
         case "isNone":
           return `${emittedArg}.is_none()`;
+        default:
+          return emittedArg;
       }
     }
     case "raw":
@@ -225,6 +229,91 @@ export function emitTsxNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): s
   }
 }
 
+/**
+ * React-specific JSX/TSX tree emitter that uses <Fragment key={...}> in .map() calls.
+ */
+export function emitReactNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): string {
+  const pad = "  ".repeat(indent);
+
+  switch (node.kind) {
+    case "text":
+      return `${pad}${node.value}`;
+    case "slot":
+      return `${pad}{${node.name}}`;
+    case "print":
+      return `${pad}{${emitTsxExpr(node.expr)}}`;
+    case "if": {
+      const thenPart = node.then
+        .map((child) => emitReactNode(child, emitAttr, indent + 2))
+        .join("\n");
+      const elsePart = (node.else ?? [])
+        .map((child) => emitReactNode(child, emitAttr, indent + 2))
+        .join("\n");
+      if (elsePart) {
+        return `${pad}{${emitTsxExpr(node.test)} ? (\n${pad}  <>\n${thenPart}\n${pad}  </>\n${pad}) : (\n${pad}  <>\n${elsePart}\n${pad}  </>\n${pad})}`;
+      }
+      return `${pad}{${emitTsxExpr(node.test)} && (\n${pad}  <>\n${thenPart}\n${pad}  </>\n${pad})}`;
+    }
+    case "for": {
+      const eachExpr = emitTsxExpr(node.each);
+      const indexVar = node.indexName ?? "__index";
+      const iteratorArgs = `${node.item}, ${indexVar}`;
+      const body = node.children
+        .map((child) => emitReactNode(child, emitAttr, indent + 2))
+        .join("\n");
+      return `${pad}{(${eachExpr} ?? []).map((${iteratorArgs}) => (\n${pad}  <Fragment key={${indexVar}}>\n${body}\n${pad}  </Fragment>\n${pad}))}`;
+    }
+    case "element": {
+      const attrEntries = Object.entries(node.attrs ?? {});
+      const multilineOpen = `${pad}<${node.tag}\n${attrEntries
+        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+        .join("\n")}\n${pad}>`;
+      const children = (node.children ?? []).map((child) =>
+        emitReactNode(child, emitAttr, indent + 1),
+      );
+
+      if (children.length === 0) {
+        if (attrEntries.length === 0) {
+          return `${pad}<${node.tag} />`;
+        }
+        return `${pad}<${node.tag}\n${attrEntries
+          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+          .join("\n")}\n${pad}/>`;
+      }
+
+      if (attrEntries.length === 0) {
+        return `${pad}<${node.tag}>\n${children.join("\n")}\n${pad}</${node.tag}>`;
+      }
+
+      return `${multilineOpen}\n${children.join("\n")}\n${pad}</${node.tag}>`;
+    }
+    case "component": {
+      const propEntries = Object.entries(node.props ?? {});
+      const multilineOpen = `${pad}<${node.name}\n${propEntries
+        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+        .join("\n")}\n${pad}>`;
+      const children = (node.children ?? []).map((child) =>
+        emitReactNode(child, emitAttr, indent + 1),
+      );
+
+      if (children.length === 0) {
+        if (propEntries.length === 0) {
+          return `${pad}<${node.name} />`;
+        }
+        return `${pad}<${node.name}\n${propEntries
+          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+          .join("\n")}\n${pad}/>`;
+      }
+
+      if (propEntries.length === 0) {
+        return `${pad}<${node.name}>\n${children.join("\n")}\n${pad}</${node.name}>`;
+      }
+
+      return `${multilineOpen}\n${children.join("\n")}\n${pad}</${node.name}>`;
+    }
+  }
+}
+
 function toPascalCase(value: string): string {
   return value
     .replace(/(^|[-_ ]+)([a-zA-Z0-9])/g, (_match, _sep: string, char: string) =>
@@ -295,6 +384,27 @@ export function buildTsxImportLines(template: BuildTemplate): string {
 }
 
 /**
+ * Checks whether the AST contains any "for" nodes, which means
+ * the React target needs to import Fragment.
+ */
+function astUsesForNode(node: Node): boolean {
+  switch (node.kind) {
+    case "for":
+      return true;
+    case "if":
+      return (
+        node.then.some(astUsesForNode) || (node.else ?? []).some(astUsesForNode)
+      );
+    case "element":
+      return (node.children ?? []).some(astUsesForNode);
+    case "component":
+      return (node.children ?? []).some(astUsesForNode);
+    default:
+      return false;
+  }
+}
+
+/**
  * Wraps an emitted TSX template body in a component module.
  */
 export function buildTsxComponentSource(template: BuildTemplate, body: string): string {
@@ -307,6 +417,57 @@ export function buildTsxComponentSource(template: BuildTemplate, body: string): 
   const componentImports = buildTsxImportLines(template);
 
   return `import type { ReactNode } from "react";
+${componentImports ? `${componentImports}\n` : ""}
+
+export type ${propsTypeName} = {
+${propLines.join("\n")}
+};
+
+export default function ${template.name}({ ${destructuredProps} }: ${propsTypeName}) {
+  return (
+${body}
+  );
+}
+`;
+}
+
+/**
+ * Wraps an emitted React TSX template body in a component module.
+ * Only imports ReactNode when a prop uses it, and imports Fragment when needed.
+ */
+export function buildReactComponentSource(template: BuildTemplate, body: string): string {
+  const props = template.props ?? [];
+  const propsTypeName = `${template.name}Props`;
+  const propLines = props.map(
+    (prop) => `  ${prop.name}${prop.optional ? "?" : ""}: ${toTsType(prop.type)};`,
+  );
+  const destructuredProps = props.map((prop) => prop.name).join(", ");
+  const componentImports = buildTsxImportLines(template);
+
+  const needsReactNode = props.some(
+    (prop) => prop.type === "children" || prop.type === "children[]" || prop.type === "children[][]",
+  );
+  const needsFragment = astUsesForNode(template.template);
+
+  const reactImports: string[] = [];
+  if (needsFragment) {
+    reactImports.push("Fragment");
+  }
+  const reactTypeImports: string[] = [];
+  if (needsReactNode) {
+    reactTypeImports.push("ReactNode");
+  }
+
+  let importLine = "";
+  if (reactImports.length > 0 && reactTypeImports.length > 0) {
+    importLine = `import { ${reactImports.join(", ")}, type ${reactTypeImports.join(", type ")} } from "react";`;
+  } else if (reactImports.length > 0) {
+    importLine = `import { ${reactImports.join(", ")} } from "react";`;
+  } else if (reactTypeImports.length > 0) {
+    importLine = `import type { ${reactTypeImports.join(", ")} } from "react";`;
+  }
+
+  return `${importLine}
 ${componentImports ? `${componentImports}\n` : ""}
 
 export type ${propsTypeName} = {

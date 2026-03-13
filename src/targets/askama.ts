@@ -38,11 +38,24 @@ function emitAskamaAttr(name: string, value: AttrValue): string {
           parts.push(item.value);
           continue;
         }
+        if (item.kind === "dynamic") {
+          parts.push(`{{ ${emitAskamaExpr(item.expr)} }}`);
+          continue;
+        }
 
         parts.push(`{% if ${emitAskamaExpr(item.test)} %}${item.value}{% endif %}`);
       }
 
       return `${name}=${wrapHtmlAttribute(parts.join(" ").trim())}`;
+    }
+    case "concat": {
+      const segments = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        return `{{ ${emitAskamaExpr(part)} }}`;
+      });
+      return `${name}=${wrapHtmlAttribute(segments.join(""))}`;
     }
   }
 }

@@ -18,11 +18,23 @@ function emitStaticJsxAttr(name: string, value: AttrValue): string {
         if (item.kind === "static") {
           return item.value;
         }
+        if (item.kind === "dynamic") {
+          return `\${${emitTsxExpr(item.expr)}}`;
+        }
 
         return `\${${emitTsxExpr(item.test)} ? ${JSON.stringify(item.value)} : ""}`;
       });
 
       return `${attrName}={\`${segments.join(" ").trim()}\`}`;
+    }
+    case "concat": {
+      const segments = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        return `\${${emitTsxExpr(part)}}`;
+      });
+      return `${attrName}={\`${segments.join("")}\`}`;
     }
   }
 }

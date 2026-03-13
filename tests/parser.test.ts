@@ -168,3 +168,115 @@ export default function Example({ label }: Props) {
   assert.ok(component.props?.className);
   assert.equal(component.props?.class, undefined);
 });
+
+// --- Regression tests for bug fixes ---
+
+test("parseClassList: bare identifiers produce dynamic class items, not static strings", () => {
+  const parsed = parseTemplateFile(`
+export type Props = {
+  variant: string;
+  size: string;
+};
+
+export default function Example({ variant, size }: Props) {
+  return <div className={["base", variant, size]} />;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") throw new Error("expected element");
+
+  const cls = parsed.template.attrs?.class;
+  assert.ok(cls);
+  assert.equal(cls?.kind, "classList");
+  if (cls?.kind !== "classList") throw new Error("expected classList");
+
+  assert.equal(cls.items.length, 3);
+  assert.deepEqual(cls.items[0], { kind: "static", value: "base" });
+  assert.equal(cls.items[1]?.kind, "dynamic");
+  if (cls.items[1]?.kind !== "dynamic") throw new Error("expected dynamic");
+  assert.deepEqual(cls.items[1].expr, { kind: "var", name: "variant" });
+  assert.equal(cls.items[2]?.kind, "dynamic");
+  if (cls.items[2]?.kind !== "dynamic") throw new Error("expected dynamic");
+  assert.deepEqual(cls.items[2].expr, { kind: "var", name: "size" });
+});
+
+test("parseClassList: complex conditional with isEmpty parses correctly using findTopLevelOperator", () => {
+  const parsed = parseTemplateFile(`
+import { isEmpty, isSome } from "@relevate/katachi";
+
+export type Props = {
+  label?: string;
+};
+
+export default function Example({ label }: Props) {
+  return <div className={["base", isSome(label) && !isEmpty(label) && "has-label"]} />;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") throw new Error("expected element");
+
+  const cls = parsed.template.attrs?.class;
+  assert.ok(cls);
+  assert.equal(cls?.kind, "classList");
+  if (cls?.kind !== "classList") throw new Error("expected classList");
+
+  assert.equal(cls.items.length, 2);
+  assert.deepEqual(cls.items[0], { kind: "static", value: "base" });
+
+  const conditional = cls.items[1];
+  assert.equal(conditional?.kind, "when");
+  if (conditional?.kind !== "when") throw new Error("expected when item");
+  assert.equal(conditional.value, "has-label");
+  // The test expression should be an `and` of two sub-expressions
+  assert.equal(conditional.test.kind, "and");
+});
+
+test("parseAttrValue: non-class array attributes produce concat AttrValue", () => {
+  const parsed = parseTemplateFile(`
+export type Props = {
+  variant: string;
+};
+
+export default function Example({ variant }: Props) {
+  return <a href={["#section-", variant, "-detail"]} />;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") throw new Error("expected element");
+
+  const href = parsed.template.attrs?.href;
+  assert.ok(href);
+  assert.equal(href?.kind, "concat");
+  if (href?.kind !== "concat") throw new Error("expected concat");
+  assert.equal(href.parts.length, 3);
+  assert.deepEqual(href.parts[0], { kind: "string", value: "#section-" });
+  assert.deepEqual(href.parts[1], { kind: "var", name: "variant" });
+  assert.deepEqual(href.parts[2], { kind: "string", value: "-detail" });
+});
+
+test("parseAttrValue: style concat attribute produces concat AttrValue", () => {
+  const parsed = parseTemplateFile(`
+export type Props = {
+  color: string;
+};
+
+export default function Example({ color }: Props) {
+  return <div style={["background-color: ", color, "; padding: 8px"]} />;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") throw new Error("expected element");
+
+  const style = parsed.template.attrs?.style;
+  assert.ok(style);
+  assert.equal(style?.kind, "concat");
+  if (style?.kind !== "concat") throw new Error("expected concat");
+  assert.equal(style.parts.length, 3);
+  assert.deepEqual(style.parts[0], { kind: "string", value: "background-color: " });
+  assert.deepEqual(style.parts[1], { kind: "var", name: "color" });
+  assert.deepEqual(style.parts[2], { kind: "string", value: "; padding: 8px" });
+});

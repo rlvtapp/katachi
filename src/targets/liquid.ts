@@ -257,6 +257,25 @@ function emitLiquidComponentPropValue(
         source: classVar,
       };
     }
+    case "concat": {
+      const concatVar = nextTempName(context, "concat");
+      const fragments = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        const scalar = emitLiquidScalarExpr(part);
+        if (scalar) {
+          return `{{ ${scalar} }}`;
+        }
+        return "";
+      });
+      return {
+        prelude: [
+          `${pad(indent)}{% capture ${concatVar} %}${fragments.join("")}{% endcapture %}`,
+        ],
+        source: concatVar,
+      };
+    }
   }
 }
 
@@ -272,6 +291,13 @@ function emitLiquidClassCapture(
   for (const item of value.items) {
     if (item.kind === "static") {
       fragments.push(item.value);
+      continue;
+    }
+    if (item.kind === "dynamic") {
+      const scalar = emitLiquidScalarExpr(item.expr);
+      if (scalar) {
+        fragments.push(`{{ ${scalar} }}`);
+      }
       continue;
     }
 
@@ -314,6 +340,13 @@ function emitLiquidAttr(
           parts.push(item.value);
           continue;
         }
+        if (item.kind === "dynamic") {
+          const scalar = emitLiquidScalarExpr(item.expr);
+          if (scalar) {
+            parts.push(`{{ ${scalar} }}`);
+          }
+          continue;
+        }
 
         const condition = materializeLiquidBooleanExpr(item.test, context, indent);
         prelude.push(...condition.prelude);
@@ -323,6 +356,22 @@ function emitLiquidAttr(
       return {
         prelude,
         source: `${name}=${wrapHtmlAttribute(parts.join(" ").trim())}`,
+      };
+    }
+    case "concat": {
+      const fragments = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        const scalar = emitLiquidScalarExpr(part);
+        if (scalar) {
+          return `{{ ${scalar} }}`;
+        }
+        return "";
+      });
+      return {
+        prelude: [],
+        source: `${name}=${wrapHtmlAttribute(fragments.join(""))}`,
       };
     }
   }

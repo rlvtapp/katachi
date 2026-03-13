@@ -19,12 +19,14 @@ export type Expr =
 
 export type ClassItem =
   | { kind: "static"; value: string }
-  | { kind: "when"; test: Expr; value: string };
+  | { kind: "when"; test: Expr; value: string }
+  | { kind: "dynamic"; expr: Expr };
 
 export type AttrValue =
   | { kind: "text"; value: string }
   | { kind: "expr"; expr: Expr }
-  | { kind: "classList"; items: ClassItem[] };
+  | { kind: "classList"; items: ClassItem[] }
+  | { kind: "concat"; parts: Expr[] };
 
 export type Node =
   | { kind: "text"; value: string }
@@ -63,6 +65,7 @@ export const not = (expr: Expr): Expr => ({ kind: "not", expr });
 export const textAttr = (value: string): AttrValue => ({ kind: "text", value });
 export const exprAttr = (expr: Expr): AttrValue => ({ kind: "expr", expr });
 export const classList = (...items: ClassItem[]): AttrValue => ({ kind: "classList", items });
+export const concatAttr = (...parts: Expr[]): AttrValue => ({ kind: "concat", parts });
 
 export const textNode = (value: string): Node => ({ kind: "text", value });
 export const slotNode = (name: string): Node => ({ kind: "slot", name });
