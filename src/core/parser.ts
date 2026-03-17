@@ -1,4 +1,4 @@
-import type { AttrValue, ClassItem, Expr, Node } from "./ast.js";
+import type { AttrValue, ClassItem, Expr, Node, TagName } from "./ast.js";
 import {
   and,
   classList,
@@ -507,6 +507,29 @@ function normalizeElementAttrs(attrs: Record<string, AttrValue>): Record<string,
   return normalized;
 }
 
+function parseDynamicTag(value: AttrValue | undefined): TagName {
+  if (!value) {
+    throw new Error("<Element> requires a `tag={...}` prop");
+  }
+
+  if (value.kind === "text") {
+    return { kind: "dynamic", parts: [s(value.value)] };
+  }
+
+  if (value.kind === "expr") {
+    return { kind: "dynamic", parts: [value.expr] };
+  }
+
+  if (value.kind === "concat") {
+    if (value.parts.length === 0) {
+      throw new Error("<Element> requires at least one tag part");
+    }
+    return { kind: "dynamic", parts: value.parts };
+  }
+
+  throw new Error("<Element> tag must be a string, expression, or string/expression tuple");
+}
+
 function readOpenTag(source: string, startIndex: number): string {
   let index = startIndex;
   let quote: string | null = null;
@@ -593,6 +616,13 @@ function parseNodes(source: string, startIndex = 0, untilTagName: string | null 
           throw new Error('<For> requires `each={...}` and `as="..."`');
         }
         nodes.push(forNode(item, each, parsedChildren.nodes, indexName));
+        continue;
+      }
+
+      if (tagName === "Element") {
+        const normalizedAttrs = normalizeElementAttrs(attrs);
+        const { tag: tagAttr, ...restAttrs } = normalizedAttrs;
+        nodes.push(elementNode(parseDynamicTag(tagAttr), restAttrs, parsedChildren.nodes));
         continue;
       }
 

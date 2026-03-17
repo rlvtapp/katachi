@@ -1,6 +1,6 @@
 import type { AttrValue, Node } from "../core/ast.js";
 import type { BuildTemplate } from "../core/types.js";
-import { buildTsxComponentSource, emitTsxExpr, emitTsxNode } from "./shared.js";
+import { buildTsxComponentSource, emitTsxExpr, emitTsxNode, emitTsxWithHoists } from "./shared.js";
 
 /**
  * Emits TSX meant to read more statically by inlining class string interpolation.
@@ -44,5 +44,6 @@ export function emitStaticJsx(node: Node, indent = 0): string {
 }
 
 export function emitStaticJsxComponent(template: BuildTemplate): string {
-  return buildTsxComponentSource(template, emitStaticJsx(template.template, 2));
+  const { body, hoists } = emitTsxWithHoists(template, emitTsxNode, emitStaticJsxAttr);
+  return buildTsxComponentSource(template, body, hoists);
 }

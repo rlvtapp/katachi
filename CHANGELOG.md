@@ -2,13 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-
 ## [Unreleased]
 
 ### Added
 
 - Shopify Liquid snippet output under `dist/liquid/snippets`
+- `Element` helper for dynamic intrinsic tags such as `tag={["h", level]}`
 
 ### Changed
 
@@ -16,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GitHub release publishing is wired for npm trusted publishing
 - `TemplateNode` is now the markup/content channel for template props and
   children
+- React and static TSX targets now hoist safe dynamic tags to typed local tag
+  variables
+- Askama and Liquid targets now emit interpolated intrinsic tag names for
+  dynamic `Element` tags
 
 ### Removed
 

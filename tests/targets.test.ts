@@ -174,6 +174,38 @@ export default function Example({ items, label, errorMessage, children }: Props)
   assert.match(askamaOutput, /{% if errorMessage\.is_none\(\) %}/);
 });
 
+test("dynamic Element tags lower across React, static JSX, Askama, and Liquid", () => {
+  const template = buildTemplate(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  level: number;
+  title: string;
+};
+
+export default function Example({ level, title }: Props) {
+  return (
+    <Element tag={["h", level]} className="headline">
+      {title}
+    </Element>
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const staticOutput = emitStaticJsxComponent(template);
+  const askamaOutput = emitAskamaPartial(template);
+  const liquidOutput = emitLiquidSnippet(template);
+
+  assert.match(reactOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(reactOutput, /<Tag[\s\S]*className="headline"/);
+  assert.match(staticOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(askamaOutput, /<h{{ level }}[\s\S]*class='headline'[\s\S]*>/);
+  assert.match(askamaOutput, /<\/h{{ level }}>/);
+  assert.match(liquidOutput, /<h{{ level }}[\s\S]*class='headline'[\s\S]*>/);
+  assert.match(liquidOutput, /<\/h{{ level }}>/);
+});
+
 // --- Regression tests for the 9 bug fixes ---
 
 // Bug #1 (CRITICAL): isEmpty() helper must compile to JS, not leak as raw text

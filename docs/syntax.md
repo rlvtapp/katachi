@@ -21,7 +21,7 @@ A template file should export:
 Example:
 
 ```tsx
-import { For, If, isEmpty, len, type TemplateNode } from "@relevate/katachi";
+import { Element, For, If, isEmpty, len, type TemplateNode } from "@relevate/katachi";
 
 export type Props = {
   title: string;
@@ -32,7 +32,7 @@ export type Props = {
 export default function Example({ title, rows, children }: Props) {
   return (
     <section>
-      <h2>{title}</h2>
+      <Element tag={["h", 2]}>{title}</Element>
       <For each={rows} as="row">
         <div>{row[0]}</div>
       </For>
@@ -62,6 +62,22 @@ Normal lowercase JSX tags work as expected:
 <span>{value}</span>
 <img src={src} alt={alt} />
 ```
+
+### Dynamic intrinsic elements
+
+Use `Element` when the tag name itself needs to vary.
+
+```tsx
+import { Element } from "@relevate/katachi";
+
+<Element tag={["h", level]} className="headline">
+  {title}
+</Element>
+```
+
+`tag` accepts either a plain expression like `tag={tagName}` or a structured
+tuple like `tag={["h", level]}` when you want a fixed prefix with one dynamic
+part.
 
 ### Imported template components
 
@@ -213,6 +229,7 @@ portable helpers in new Katachi templates:
 - `ClassValue`
 - `TemplateNode`
 - `If`
+- `Element`
 - `For`
 - `len`
 - `isEmpty`

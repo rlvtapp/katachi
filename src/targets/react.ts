@@ -3,6 +3,7 @@ import type { BuildTemplate } from "../core/types.js";
 import {
   buildReactComponentSource,
   emitTsxExpr,
+  emitTsxWithHoists,
   emitReactNode,
 } from "./shared.js";
 
@@ -279,5 +280,6 @@ export function emitReact(node: Node, indent = 0): string {
 }
 
 export function emitReactComponent(template: BuildTemplate): string {
-  return buildReactComponentSource(template, emitReact(template.template, 2));
+  const { body, hoists } = emitTsxWithHoists(template, emitReactNode, emitReactAttr);
+  return buildReactComponentSource(template, body, hoists);
 }

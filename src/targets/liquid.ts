@@ -1,6 +1,6 @@
 import type { AttrValue, Expr, Node } from "../core/ast.js";
 import type { BuildTemplate } from "../core/types.js";
-import { wrapHtmlAttribute } from "./shared.js";
+import { emitInterpolatedTagName, wrapHtmlAttribute } from "./shared.js";
 
 interface LiquidContext {
   tempId: number;
@@ -70,6 +70,17 @@ function emitLiquidScalarExpr(expr: Expr): string | null {
     default:
       return null;
   }
+}
+
+function emitLiquidTagExpr(expr: Expr): string {
+  const scalar = emitLiquidScalarExpr(expr);
+  if (scalar) {
+    return scalar;
+  }
+  if (expr.kind === "raw") {
+    return translateTsxExprToLiquid(expr.source);
+  }
+  return "";
 }
 
 function emitSimpleLiquidCondition(expr: Expr): string | null {
@@ -426,19 +437,20 @@ function emitLiquidNode(node: Node, context: LiquidContext, indent = 0): string 
       });
 
       const children = (node.children ?? []).map((child) => emitLiquidNode(child, context, indent + 1));
+      const tagName = emitInterpolatedTagName(node.tag, emitLiquidTagExpr);
       const attrBlock = attrs.length
         ? `\n${attrs.map((attr) => `${pad(indent + 1)}${attr}`).join("\n")}\n${pad(indent)}`
         : "";
 
       if (children.length === 0) {
-        return [...prelude, `${pad(indent)}<${node.tag}${attrBlock} />`].join("\n");
+        return [...prelude, `${pad(indent)}<${tagName}${attrBlock} />`].join("\n");
       }
 
       return [
         ...prelude,
-        `${pad(indent)}<${node.tag}${attrBlock}>`,
+        `${pad(indent)}<${tagName}${attrBlock}>`,
         ...children,
-        `${pad(indent)}</${node.tag}>`,
+        `${pad(indent)}</${tagName}>`,
       ].join("\n");
     }
     case "component": {

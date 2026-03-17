@@ -169,6 +169,37 @@ export default function Example({ label }: Props) {
   assert.equal(component.props?.class, undefined);
 });
 
+test("parseTemplateFile lowers Element helper to a dynamic intrinsic tag", () => {
+  const parsed = parseTemplateFile(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  level: number;
+  title: string;
+};
+
+export default function Example({ level, title }: Props) {
+  return <Element tag={["h", level]} className="headline">{title}</Element>;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected root element");
+  }
+
+  assert.equal(parsed.template.tag.kind, "dynamic");
+  if (parsed.template.tag.kind !== "dynamic") {
+    throw new Error("expected dynamic tag");
+  }
+
+  assert.equal(parsed.template.tag.parts.length, 2);
+  assert.deepEqual(parsed.template.tag.parts[0], { kind: "string", value: "h" });
+  assert.deepEqual(parsed.template.tag.parts[1], { kind: "var", name: "level" });
+  assert.equal(parsed.template.attrs?.class?.kind, "text");
+  assert.equal(parsed.template.children?.[0]?.kind, "print");
+});
+
 // --- Regression tests for bug fixes ---
 
 test("parseClassList: bare identifiers produce dynamic class items, not static strings", () => {

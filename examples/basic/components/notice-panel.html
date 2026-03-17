@@ -8,9 +8,9 @@
     {% let name = icon %}
     {% include "./includes/glyph.html" %}
     <div class="min-w-0 flex-1">
-      <h3 class="text-sm font-semibold tracking-tight">
+      <h{{ headingLevel }} class="text-sm font-semibold tracking-tight">
         {{ title }}
-      </h3>
+      </h{{ headingLevel }}>
       <div class="mt-2 text-sm leading-6 text-slate-700">
         {{ children|safe }}
       </div>

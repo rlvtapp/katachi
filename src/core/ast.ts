@@ -28,6 +28,10 @@ export type AttrValue =
   | { kind: "classList"; items: ClassItem[] }
   | { kind: "concat"; parts: Expr[] };
 
+export type TagName =
+  | { kind: "static"; name: string }
+  | { kind: "dynamic"; parts: Expr[] };
+
 export type Node =
   | { kind: "text"; value: string }
   | { kind: "slot"; name: string }
@@ -40,7 +44,7 @@ export type Node =
       children: Node[];
       indexName?: string | null;
     }
-  | { kind: "element"; tag: string; attrs?: Record<string, AttrValue>; children?: Node[] }
+  | { kind: "element"; tag: TagName; attrs?: Record<string, AttrValue>; children?: Node[] }
   | { kind: "component"; name: string; props?: Record<string, AttrValue>; children?: Node[] };
 
 export const v = (name: string): Expr => ({ kind: "var", name });
@@ -89,12 +93,12 @@ export const forNode = (
   indexName,
 });
 export const elementNode = (
-  tag: string,
+  tag: string | TagName,
   attrs: Record<string, AttrValue> = {},
   children: Node[] = [],
 ): Node => ({
   kind: "element",
-  tag,
+  tag: typeof tag === "string" ? { kind: "static", name: tag } : tag,
   attrs,
   children,
 });

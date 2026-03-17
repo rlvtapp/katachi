@@ -2,6 +2,7 @@ import type { AttrValue, Node } from "../core/ast.js";
 import type { BuildTemplate } from "../core/types.js";
 import {
   emitAskamaExpr,
+  emitInterpolatedTagName,
   escapeDoubleQuotes,
   toCamelCase,
   toRustType,
@@ -110,12 +111,13 @@ export function emitAskama(
       const children = (node.children ?? []).map((child) =>
         emitAskama(child, indent + 1, componentRegistry, valueTypes),
       );
+      const tagName = emitInterpolatedTagName(node.tag, emitAskamaExpr);
 
       if (children.length === 0) {
-        return `${pad}<${node.tag}${attrs}/>`;
+        return `${pad}<${tagName}${attrs}/>`;
       }
 
-      return `${pad}<${node.tag}${attrs}>\n${children.join("\n")}\n${pad}</${node.tag}>`;
+      return `${pad}<${tagName}${attrs}>\n${children.join("\n")}\n${pad}</${tagName}>`;
     }
     case "component": {
       const registration = componentRegistry[node.name];
