@@ -206,6 +206,89 @@ export default function Example({ level, title }: Props) {
   assert.match(liquidOutput, /<\/h{{ level }}>/);
 });
 
+test("dynamic Element supports plain tag variables across targets", () => {
+  const template = buildTemplate(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  tagName: string;
+  title: string;
+};
+
+export default function Example({ tagName, title }: Props) {
+  return <Element tag={tagName}>{title}</Element>;
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const askamaOutput = emitAskamaPartial(template);
+  const liquidOutput = emitLiquidSnippet(template);
+
+  assert.match(reactOutput, /const Tag = tagName as ElementType;/);
+  assert.match(reactOutput, /<Tag>/);
+  assert.match(askamaOutput, /<{{ tagName }}>[\s\S]*{{ title }}[\s\S]*<\/{{ tagName }}>/);
+  assert.match(liquidOutput, /<{{ tagName }}>[\s\S]*{{ title }}[\s\S]*<\/{{ tagName }}>/);
+});
+
+test("dynamic Element tags inside loops fall back to scoped React emission", () => {
+  const template = buildTemplate(`
+import { Element, For } from "@relevate/katachi";
+
+export type Props = {
+  levels: number[];
+  title: string;
+};
+
+export default function Example({ levels, title }: Props) {
+  return (
+    <section>
+      <For each={levels} as="level">
+        <Element tag={["h", level]}>{title}</Element>
+      </For>
+    </section>
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const staticOutput = emitStaticJsxComponent(template);
+
+  assert.doesNotMatch(reactOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(reactOutput, /const KatachiTag = `h\$\{level\}`;/);
+  assert.match(reactOutput, /<KatachiTag>/);
+  assert.doesNotMatch(staticOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(staticOutput, /const KatachiTag = `h\$\{level\}`;/);
+});
+
+test("multiple hoisted dynamic Element tags use stable sequential names", () => {
+  const template = buildTemplate(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  headingLevel: number;
+  subheadingLevel: number;
+  title: string;
+  subtitle: string;
+};
+
+export default function Example({ headingLevel, subheadingLevel, title, subtitle }: Props) {
+  return (
+    <section>
+      <Element tag={["h", headingLevel]}>{title}</Element>
+      <Element tag={["h", subheadingLevel]}>{subtitle}</Element>
+    </section>
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+
+  assert.match(reactOutput, /const Tag = `h\$\{headingLevel\}` as ElementType;/);
+  assert.match(reactOutput, /const Tag2 = `h\$\{subheadingLevel\}` as ElementType;/);
+  assert.match(reactOutput, /<Tag>/);
+  assert.match(reactOutput, /<Tag2>/);
+});
+
 // --- Regression tests for the 9 bug fixes ---
 
 // Bug #1 (CRITICAL): isEmpty() helper must compile to JS, not leak as raw text

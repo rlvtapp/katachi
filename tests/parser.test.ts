@@ -200,6 +200,52 @@ export default function Example({ level, title }: Props) {
   assert.equal(parsed.template.children?.[0]?.kind, "print");
 });
 
+test("parseTemplateFile supports plain dynamic tag variables", () => {
+  const parsed = parseTemplateFile(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  tagName: string;
+  title: string;
+};
+
+export default function Example({ tagName, title }: Props) {
+  return <Element tag={tagName}>{title}</Element>;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected root element");
+  }
+
+  assert.equal(parsed.template.tag.kind, "dynamic");
+  if (parsed.template.tag.kind !== "dynamic") {
+    throw new Error("expected dynamic tag");
+  }
+
+  assert.equal(parsed.template.tag.parts.length, 1);
+  assert.deepEqual(parsed.template.tag.parts[0], { kind: "var", name: "tagName" });
+});
+
+test("parseTemplateFile rejects Element without a tag prop", () => {
+  assert.throws(
+    () =>
+      parseTemplateFile(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  title: string;
+};
+
+export default function Example({ title }: Props) {
+  return <Element>{title}</Element>;
+}
+`),
+    /<Element> requires a `tag=\{\.\.\.\}` prop/,
+  );
+});
+
 // --- Regression tests for bug fixes ---
 
 test("parseClassList: bare identifiers produce dynamic class items, not static strings", () => {
