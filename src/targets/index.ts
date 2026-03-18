@@ -1,5 +1,6 @@
 import type { OutputTarget } from "../core/types.js";
 import { emitAskamaComponent, emitAskamaPartial } from "./askama.js";
+import { emitLiquidSnippet } from "./liquid.js";
 import { emitReactComponent } from "./react.js";
 import { emitStaticJsxComponent } from "./static-jsx.js";
 
@@ -55,6 +56,19 @@ export const outputTargets: OutputTarget[] = [
         {
           fileName: `${template.fileName}.html`,
           content: emitAskamaPartial(template),
+        },
+      ];
+    },
+  },
+  {
+    id: "liquid",
+    outputSubdir: "liquid/snippets",
+    extension: ".liquid",
+    emitFiles(template) {
+      return [
+        {
+          fileName: `${template.fileName}.liquid`,
+          content: emitLiquidSnippet(template),
         },
       ];
     },

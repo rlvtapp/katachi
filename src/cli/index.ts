@@ -11,20 +11,23 @@ interface CliOptions {
   projectRoot?: string;
   distDir?: string;
   templatesDir?: string;
+  targets?: string[];
 }
 
 function printHelp(): void {
   console.log(`Katachi
 
 Usage:
-  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>]
+  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>] [--target <name>]...
   katachi verify:examples
   katachi help
 
-Defaults:
-  --project   current working directory
-  --templates <project>/src/templates
-  --dist      <project>/dist`);
+Options:
+  --project   Project root directory (default: cwd)
+  --templates Template source directory (default: <project>/src/templates)
+  --dist      Output directory (default: <project>/dist)
+  --target    Emit only the specified target(s). Can be repeated.
+              Available: react, jsx-static, askama, askama-includes, liquid`);
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -59,6 +62,13 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (current === "--target" && next) {
+      options.targets ??= [];
+      options.targets.push(next);
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown or incomplete option: ${current}`);
   }
 
@@ -78,6 +88,7 @@ function run(): void {
       projectRoot: options.projectRoot,
       templatesDir: options.templatesDir,
       distDir: options.distDir,
+      targets: options.targets,
     });
     return;
   }

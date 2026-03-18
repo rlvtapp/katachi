@@ -23,6 +23,7 @@ export interface TemplateProp {
 export interface ComponentRegistration {
   reactImport: string;
   include: string;
+  liquidSnippet?: string;
 }
 
 export type ComponentRegistry = Record<string, ComponentRegistration>;

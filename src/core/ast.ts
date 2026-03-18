@@ -19,17 +19,23 @@ export type Expr =
 
 export type ClassItem =
   | { kind: "static"; value: string }
-  | { kind: "when"; test: Expr; value: string };
+  | { kind: "when"; test: Expr; value: string }
+  | { kind: "dynamic"; expr: Expr };
 
 export type AttrValue =
   | { kind: "text"; value: string }
   | { kind: "expr"; expr: Expr }
-  | { kind: "classList"; items: ClassItem[] };
+  | { kind: "classList"; items: ClassItem[] }
+  | { kind: "concat"; parts: Expr[] };
+
+export type TagName =
+  | { kind: "static"; name: string }
+  | { kind: "dynamic"; parts: Expr[] };
 
 export type Node =
   | { kind: "text"; value: string }
   | { kind: "slot"; name: string }
-  | { kind: "print"; expr: Expr; safe?: boolean }
+  | { kind: "print"; expr: Expr }
   | { kind: "if"; test: Expr; then: Node[]; else?: Node[] }
   | {
       kind: "for";
@@ -38,7 +44,7 @@ export type Node =
       children: Node[];
       indexName?: string | null;
     }
-  | { kind: "element"; tag: string; attrs?: Record<string, AttrValue>; children?: Node[] }
+  | { kind: "element"; tag: TagName; attrs?: Record<string, AttrValue>; children?: Node[] }
   | { kind: "component"; name: string; props?: Record<string, AttrValue>; children?: Node[] };
 
 export const v = (name: string): Expr => ({ kind: "var", name });
@@ -63,10 +69,11 @@ export const not = (expr: Expr): Expr => ({ kind: "not", expr });
 export const textAttr = (value: string): AttrValue => ({ kind: "text", value });
 export const exprAttr = (expr: Expr): AttrValue => ({ kind: "expr", expr });
 export const classList = (...items: ClassItem[]): AttrValue => ({ kind: "classList", items });
+export const concatAttr = (...parts: Expr[]): AttrValue => ({ kind: "concat", parts });
 
 export const textNode = (value: string): Node => ({ kind: "text", value });
 export const slotNode = (name: string): Node => ({ kind: "slot", name });
-export const printNode = (expr: Expr, safe = false): Node => ({ kind: "print", expr, safe });
+export const printNode = (expr: Expr): Node => ({ kind: "print", expr });
 export const ifNode = (test: Expr, thenNodes: Node[], elseNodes: Node[] = []): Node => ({
   kind: "if",
   test,
@@ -86,12 +93,12 @@ export const forNode = (
   indexName,
 });
 export const elementNode = (
-  tag: string,
+  tag: string | TagName,
   attrs: Record<string, AttrValue> = {},
   children: Node[] = [],
 ): Node => ({
   kind: "element",
-  tag,
+  tag: typeof tag === "string" ? { kind: "static", name: tag } : tag,
   attrs,
   children,
 });

@@ -1,8 +1,8 @@
-import { If, safe, type TemplateNode } from "@relevate/katachi";
+import { If, type TemplateNode } from "@relevate/katachi";
 
 export type Props = {
   eyebrow?: string;
-  caption_html?: string;
+  caption_html?: TemplateNode;
   children?: TemplateNode;
 };
 
@@ -17,7 +17,7 @@ export default function MediaFrame({ eyebrow, caption_html, children }: Props) {
       <div className="bg-slate-50 p-4">{children}</div>
       <If test={caption_html != null}>
         <figcaption className="border-t border-slate-200 px-5 py-4 text-sm leading-6 text-slate-600">
-          {safe(caption_html)}
+          {caption_html}
         </figcaption>
       </If>
     </figure>

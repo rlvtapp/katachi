@@ -1,11 +1,11 @@
-import { If, safe } from "@relevate/katachi";
+import { If, type TemplateNode } from "@relevate/katachi";
 import Glyph from "./glyph.template";
 
 export type Props = {
   href: string;
-  title_html: string;
-  summary_html: string;
-  eyebrow_html?: string;
+  title_html: TemplateNode;
+  summary_html: TemplateNode;
+  eyebrow_html?: TemplateNode;
   icon: string;
   selected: boolean;
 };
@@ -34,14 +34,14 @@ export default function ResourceTile({
           <div className="min-w-0 flex-1">
             <If test={eyebrow_html != null}>
               <div className="truncate text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                {safe(eyebrow_html)}
+                {eyebrow_html}
               </div>
             </If>
             <div className="mt-1 truncate text-sm font-semibold text-slate-900">
-              {safe(title_html)}
+              {title_html}
             </div>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              {safe(summary_html)}
+              {summary_html}
             </p>
           </div>
         </div>

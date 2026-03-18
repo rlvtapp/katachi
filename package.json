@@ -1,6 +1,6 @@
 {
 	"name": "@relevate/katachi",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Author template-like components once in restricted TSX and compile them to Askama, React, and other targets.",
 	"license": "MIT",
 	"author": "Relevate",

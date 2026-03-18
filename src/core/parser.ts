@@ -1,8 +1,9 @@
-import type { AttrValue, ClassItem, Expr, Node } from "./ast.js";
+import type { AttrValue, ClassItem, Expr, Node, TagName } from "./ast.js";
 import {
   and,
   classList,
   componentNode,
+  concatAttr,
   elementNode,
   eq,
   exprAttr,
@@ -236,14 +237,9 @@ function parseExpr(source: string): Expr {
     return n(Number(input));
   }
 
-  if (input.startsWith("!(") && input.endsWith(")")) {
-    return not(parseExpr(input.slice(2, -1)));
-  }
-
-  if (input.startsWith("!") && !input.startsWith("!=")) {
-    return not(parseExpr(input.slice(1)));
-  }
-
+  // Binary operators are searched BEFORE unary `!` because they have lower
+  // precedence.  `!isEmpty(x) && y` must split at `&&` first, yielding
+  // `and(not(isEmpty(x)), y)` — not `not(and(isEmpty(x), y))`.
   for (const operator of ["||", "&&", "===", "!==", "==", "!="]) {
     const operatorIndex = findTopLevelOperator(input, operator);
     if (operatorIndex !== -1) {
@@ -254,6 +250,14 @@ function parseExpr(source: string): Expr {
       if (operator === "===" || operator === "==") return eq(left, right);
       return neq(left, right);
     }
+  }
+
+  if (input.startsWith("!(") && input.endsWith(")")) {
+    return not(parseExpr(input.slice(2, -1)));
+  }
+
+  if (input.startsWith("!") && !input.startsWith("!=")) {
+    return not(parseExpr(input.slice(1)));
   }
 
   if (
@@ -286,24 +290,99 @@ function parseExpr(source: string): Expr {
   return raw(input);
 }
 
+function findLastTopLevelOperator(input: string, operator: string): number {
+  let depthParen = 0;
+  let depthBracket = 0;
+  let depthBrace = 0;
+  let quote: string | null = null;
+  let lastIndex = -1;
+
+  for (let index = 0; index <= input.length - operator.length; index += 1) {
+    const char = input[index];
+    const next = input[index + 1];
+
+    if (quote) {
+      if (char === "\\" && next) {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "(") depthParen += 1;
+    if (char === ")") depthParen -= 1;
+    if (char === "[") depthBracket += 1;
+    if (char === "]") depthBracket -= 1;
+    if (char === "{") depthBrace += 1;
+    if (char === "}") depthBrace -= 1;
+
+    if (
+      depthParen === 0 &&
+      depthBracket === 0 &&
+      depthBrace === 0 &&
+      input.slice(index, index + operator.length) === operator
+    ) {
+      lastIndex = index;
+    }
+  }
+
+  return lastIndex;
+}
+
 function parseClassList(source: string): AttrValue {
   const input = source.trim();
   const listBody = input.slice(1, -1);
   const items: ClassItem[] = splitTopLevel(listBody, ",").map((item) => {
-    if (item.includes("&&")) {
-      const parts = item.split("&&");
-      const test = parts[0] ?? "";
-      const value = parts.slice(1).join("&&");
+    const trimmed = item.trim();
+
+    // Conditional class: `expr && "class-name"`
+    // Use the LAST top-level && so that chained conditions like
+    // `isSome(x) && !isEmpty(x) && "cls"` correctly split into
+    // test=`isSome(x) && !isEmpty(x)` and value=`"cls"`
+    const andIndex = findLastTopLevelOperator(trimmed, "&&");
+    if (andIndex !== -1) {
+      const test = trimmed.slice(0, andIndex).trim();
+      const value = trimmed.slice(andIndex + 2).trim();
       return {
-        kind: "when",
+        kind: "when" as const,
         test: parseExpr(test),
         value: unquote(value),
       };
     }
 
+    // Bare quoted string: "class-name" or 'class-name'
+    const unquoted = unquote(trimmed);
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      return {
+        kind: "static" as const,
+        value: unquoted,
+      };
+    }
+
+    // Bare identifier or expression: className, someVar, etc.
+    // These are dynamic class items (variable references)
+    if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(trimmed)) {
+      return {
+        kind: "dynamic" as const,
+        expr: v(trimmed),
+      };
+    }
+
+    // Any other expression (function calls, etc.)
     return {
-      kind: "static",
-      value: unquote(item),
+      kind: "dynamic" as const,
+      expr: parseExpr(trimmed),
     };
   });
 
@@ -321,6 +400,12 @@ function parseAttrValue(name: string, source: string): AttrValue {
       inner.endsWith("]")
     ) {
       return parseClassList(inner);
+    }
+    // Non-class array attributes: parse as concat (e.g., href={["#", variant, "-icon"]})
+    if (inner.startsWith("[") && inner.endsWith("]")) {
+      const arrayBody = inner.slice(1, -1);
+      const parts = splitTopLevel(arrayBody, ",").map((part) => parseExpr(part.trim()));
+      return concatAttr(...parts);
     }
     return exprAttr(parseExpr(inner));
   }
@@ -422,6 +507,29 @@ function normalizeElementAttrs(attrs: Record<string, AttrValue>): Record<string,
   return normalized;
 }
 
+function parseDynamicTag(value: AttrValue | undefined): TagName {
+  if (!value) {
+    throw new Error("<Element> requires a `tag={...}` prop");
+  }
+
+  if (value.kind === "text") {
+    return { kind: "dynamic", parts: [s(value.value)] };
+  }
+
+  if (value.kind === "expr") {
+    return { kind: "dynamic", parts: [value.expr] };
+  }
+
+  if (value.kind === "concat") {
+    if (value.parts.length === 0) {
+      throw new Error("<Element> requires at least one tag part");
+    }
+    return { kind: "dynamic", parts: value.parts };
+  }
+
+  throw new Error("<Element> tag must be a string, expression, or string/expression tuple");
+}
+
 function readOpenTag(source: string, startIndex: number): string {
   let index = startIndex;
   let quote: string | null = null;
@@ -511,6 +619,13 @@ function parseNodes(source: string, startIndex = 0, untilTagName: string | null 
         continue;
       }
 
+      if (tagName === "Element") {
+        const normalizedAttrs = normalizeElementAttrs(attrs);
+        const { tag: tagAttr, ...restAttrs } = normalizedAttrs;
+        nodes.push(elementNode(parseDynamicTag(tagAttr), restAttrs, parsedChildren.nodes));
+        continue;
+      }
+
       if (/^[A-Z]/.test(tagName)) {
         nodes.push(componentNode(tagName, attrs, parsedChildren.nodes));
       } else {
@@ -536,8 +651,6 @@ function parseNodes(source: string, startIndex = 0, untilTagName: string | null 
       if (inner) {
         if (inner === "children") {
           nodes.push(slotNode(inner));
-        } else if (inner.startsWith("safe(") && inner.endsWith(")")) {
-          nodes.push(printNode(parseExpr(inner.slice(5, -1)), true));
         } else {
           nodes.push(printNode(parseExpr(inner)));
         }
@@ -572,6 +685,20 @@ function normalizePropType(type: string): string {
     type === "TemplateNode"
   ) {
     return "children";
+  }
+  if (
+    type === "ReactNode[]" ||
+    type === "React.ReactNode[]" ||
+    type === "TemplateNode[]"
+  ) {
+    return "children[]";
+  }
+  if (
+    type === "ReactNode[][]" ||
+    type === "React.ReactNode[][]" ||
+    type === "TemplateNode[][]"
+  ) {
+    return "children[][]";
   }
   if (type === "ClassValue") {
     return "string";

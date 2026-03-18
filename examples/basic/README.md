@@ -17,7 +17,7 @@ usage:
 - dynamic `className` arrays
 - `If`
 - nested `For`
-- `safe(...)`
+- `TemplateNode` content props
 - mixed HTML and expression attributes
 
 ## Example components
@@ -44,6 +44,7 @@ That writes generated output to:
 - `examples/basic/dist/react`
 - `examples/basic/dist/jsx-static`
 - `examples/basic/dist/askama`
+- `examples/basic/dist/liquid/snippets`
 
 ## Verify the public Askama fixtures
 
