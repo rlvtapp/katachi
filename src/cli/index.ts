@@ -11,13 +11,15 @@ interface CliOptions {
   projectRoot?: string;
   distDir?: string;
   templatesDir?: string;
+  askamaIncludePrefix?: string;
+  minify?: boolean;
 }
 
 function printHelp(): void {
   console.log(`Katachi
 
 Usage:
-  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>]
+  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>] [--askama-prefix <path>] [--minify]
   katachi verify:examples
   katachi help
 
@@ -59,6 +61,17 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (current === "--askama-prefix" && next) {
+      options.askamaIncludePrefix = next;
+      index += 1;
+      continue;
+    }
+
+    if (current === "--minify") {
+      options.minify = true;
+      continue;
+    }
+
     throw new Error(`Unknown or incomplete option: ${current}`);
   }
 
@@ -78,6 +91,8 @@ function run(): void {
       projectRoot: options.projectRoot,
       templatesDir: options.templatesDir,
       distDir: options.distDir,
+      askamaIncludePrefix: options.askamaIncludePrefix,
+      minify: options.minify,
     });
     return;
   }
@@ -90,6 +105,8 @@ function run(): void {
       projectRoot,
       templatesDir: options.templatesDir,
       distDir,
+      askamaIncludePrefix: options.askamaIncludePrefix,
+      minify: options.minify,
     });
     verifyAskamaFixtures({
       fixtures:

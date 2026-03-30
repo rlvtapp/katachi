@@ -76,3 +76,58 @@ export default function Card({ active, label, children }: Props) {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("buildProject can minify Askama include and Liquid outputs", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "katachi-build-minify-"));
+
+  try {
+    const templatesDir = join(tempRoot, "templates");
+    const distDir = join(tempRoot, "dist");
+    mkdirSync(templatesDir, { recursive: true });
+
+    writeFileSync(
+      join(templatesDir, "card.template.tsx"),
+      `import { If } from "@relevate/katachi";
+
+export type Props = {
+  active: boolean;
+  label: string;
+};
+
+export default function Card({ active, label }: Props) {
+  return (
+    <div className={["base", active && "active"]}>
+      <If test={active}>
+        <span>{label}</span>
+      </If>
+    </div>
+  );
+}
+`,
+      "utf8",
+    );
+
+    buildProject({
+      templatesDir,
+      distDir,
+      minify: true,
+      logger: silentLogger,
+    });
+
+    const askamaInclude = readFileSync(join(distDir, "askama", "includes", "card.html"), "utf8");
+    const liquidOutput = readFileSync(join(distDir, "liquid", "card.liquid"), "utf8");
+    const reactOutput = readFileSync(join(distDir, "react", "card.tsx"), "utf8");
+
+    assert.equal(
+      askamaInclude,
+      `<div class='base {% if active %}active{% endif %}'>{% if active %}<span>{{ label }}</span>{% endif %}</div>\n`,
+    );
+    assert.equal(
+      liquidOutput,
+      `<div class='base {% if active %}active{% endif %}'>{% if active %}<span>{{ label }}</span>{% endif %}</div>\n`,
+    );
+    assert.match(reactOutput, /return \(\n\s+<div>/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

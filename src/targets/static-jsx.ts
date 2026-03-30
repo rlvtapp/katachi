@@ -5,7 +5,11 @@ import { buildTsxComponentSource, emitTsxExpr, emitTsxNode } from "./shared.js";
 /**
  * Emits TSX meant to read more statically by inlining class string interpolation.
  */
-function emitStaticJsxAttr(name: string, value: AttrValue): string {
+function emitStaticJsxAttr(name: string, value: AttrValue): string | null {
+  if (name.includes("@") || name.includes(":")) {
+    return null;
+  }
+
   const attrName = name === "class" ? "className" : name;
 
   switch (value.kind) {
@@ -28,7 +32,7 @@ function emitStaticJsxAttr(name: string, value: AttrValue): string {
 }
 
 export function emitStaticJsx(node: Node, indent = 0): string {
-  return emitTsxNode(node, emitStaticJsxAttr, indent);
+  return emitTsxNode(node, emitStaticJsxAttr, indent, "jsx-static");
 }
 
 export function emitStaticJsxComponent(template: BuildTemplate): string {
