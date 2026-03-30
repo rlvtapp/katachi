@@ -1,8 +1,8 @@
-import { For, safe } from "@relevate/katachi";
+import { For, type TemplateNode } from "@relevate/katachi";
 
 export type Props = {
-  head: string[];
-  rows: string[][];
+  head: TemplateNode[];
+  rows: TemplateNode[][];
 };
 
 export default function ComparisonTable({ head, rows }: Props) {
@@ -13,7 +13,7 @@ export default function ComparisonTable({ head, rows }: Props) {
           <tr>
             <For each={head} as="cell">
               <th className="bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                {safe(cell)}
+                {cell}
               </th>
             </For>
           </tr>
@@ -23,7 +23,7 @@ export default function ComparisonTable({ head, rows }: Props) {
             <tr className="odd:bg-white even:bg-slate-50/60">
               <For each={row} as="cell">
                 <td className="px-4 py-3 text-sm text-slate-700">
-                  {safe(cell)}
+                  {cell}
                 </td>
               </For>
             </tr>

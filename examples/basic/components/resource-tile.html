@@ -1,21 +1,39 @@
-<li class="list-none" role="option" tabIndex="{{ -1 }}" aria-selected="{{ selected }}">
-  <a href="{{ href }}" class="group block rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-sm">
-    <div class="flex items-start gap-3">
-      {% let className = "mt-0.5 h-5 w-5 shrink-0 text-slate-500" %}
-      {% let tone = "slate" %}
-      {% let size = "18" %}
-      {% let name = icon %}
+<li
+  class='list-none'
+  role='option'
+  tabindex='{{ -1 }}'
+  aria-selected='{{ selected }}'
+>
+  <a
+    href='{{ href }}'
+    class='group block rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-sm'
+  >
+    <div
+      class='flex items-start gap-3'
+    >
+      {% set class_name = "mt-0.5 h-5 w-5 shrink-0 text-slate-500" %}
+      {% set tone = "slate" %}
+      {% set size = "18" %}
+      {% set name = icon %}
       {% include "./includes/glyph.html" %}
-      <div class="min-w-0 flex-1">
+      <div
+        class='min-w-0 flex-1'
+      >
         {% if eyebrow_html != null %}
-          <div class="truncate text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+          <div
+            class='truncate text-xs font-medium uppercase tracking-[0.2em] text-slate-500'
+          >
             {{ eyebrow_html|safe }}
           </div>
         {% endif %}
-        <div class="mt-1 truncate text-sm font-semibold text-slate-900">
+        <div
+          class='mt-1 truncate text-sm font-semibold text-slate-900'
+        >
           {{ title_html|safe }}
         </div>
-        <p class="mt-1 text-sm leading-6 text-slate-600">
+        <p
+          class='mt-1 text-sm leading-6 text-slate-600'
+        >
           {{ summary_html|safe }}
         </p>
       </div>

@@ -17,7 +17,7 @@ usage:
 - dynamic `className` arrays
 - `If`
 - nested `For`
-- `safe(...)`
+- `TemplateNode` content slots
 - mixed HTML and expression attributes
 
 ## Example components

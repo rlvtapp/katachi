@@ -84,6 +84,22 @@ export default function NoticePanel({ tone, title, children }: Props) {
 }
 ```
 
+If a prop contains template content instead of plain text, type it as
+`TemplateNode` and render it directly. Katachi will preserve it as safe content
+for Askama automatically.
+
+```tsx
+import { type TemplateNode } from "@relevate/katachi";
+
+export type CardProps = {
+  title_html: TemplateNode;
+};
+
+export default function Card({ title_html }: CardProps) {
+  return <h2>{title_html}</h2>;
+}
+```
+
 ## 4. Build outputs
 
 From your project root:
@@ -108,6 +124,12 @@ You can also point Katachi at custom paths:
 
 ```bash
 pnpm exec katachi build --templates ./katachi/templates --dist ./generated
+```
+
+If you want compact Askama include and Liquid output, add:
+
+```bash
+pnpm exec katachi build --minify
 ```
 
 ## 5. Consume the generated files

@@ -62,7 +62,7 @@ Responsibilities:
 - normalize `className` to internal `class`
 - convert `If` and `For`
 - convert `{children}` to slot nodes
-- convert `{safe(value)}` to safe print nodes
+- mark `TemplateNode` and `children` prints as safe
 - resolve imported template components later during build
 
 The parser is currently handwritten and string-based. That is fine for a prototype, but a stronger long-term direction is to parse real TSX via Babel, SWC, or the TypeScript compiler and then lower from that AST.

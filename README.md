@@ -7,8 +7,10 @@ Today it can emit:
 
 - React TSX components
 - static-oriented TSX components
-- Askama Rust wrapper files
+- Askama Rust wrapper files that reference generated include files
 - Askama include partials
+- Liquid templates
+- Liquid snippets
 
 Katachi is still early, but it is already usable if you need one component
 source that can target both React-style environments and Askama.
@@ -77,11 +79,19 @@ By default, Katachi writes:
 - `dist/jsx-static`
 - `dist/askama`
 - `dist/askama/includes`
+- `dist/liquid`
+- `dist/liquid/snippets`
 
 If you want custom paths:
 
 ```bash
 pnpm exec katachi build --templates ./katachi/templates --dist ./generated
+```
+
+If you want compact HTML-style output for the generated Askama include and Liquid files:
+
+```bash
+pnpm exec katachi build --minify
 ```
 
 ## First Template
@@ -132,6 +142,8 @@ By default, build output goes to:
 - `dist/jsx-static/**/*.tsx`
 - `dist/askama/**/*.rs`
 - `dist/askama/includes/**/*.html`
+- `dist/liquid/**/*.liquid`
+- `dist/liquid/snippets/**/*.liquid`
 
 Nested templates preserve their relative directory layout.
 
@@ -139,14 +151,22 @@ Nested templates preserve their relative directory layout.
 
 - template authoring in `src/templates/**/*.template.tsx`
 - imports between templates
+- same-file local helper components
 - dynamic `class` and `className` arrays
 - `If`
+- `Else`
 - `For`
-- `safe(...)`
+- top-level doctypes
+- raw `script` and `style` bodies
 - nested components
 - React output
 - static-oriented TSX output
 - Askama output
+- Liquid output
+
+`TemplateNode` is the way to pass pre-authored template content through Katachi.
+When you render a `TemplateNode` or `children`, Katachi keeps it safe for
+Askama output automatically, so there is no separate `safe(...)` helper.
 
 ## Why Katachi Exists
 
