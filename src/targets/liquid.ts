@@ -12,6 +12,13 @@ type LiquidScope = {
   safeSlots: Set<string>;
 };
 
+function createEmptyLiquidScope(): LiquidScope {
+  return {
+    bindings: {},
+    safeSlots: new Set(),
+  };
+}
+
 function createLiquidRootScope(template: BuildTemplate): LiquidScope {
   return {
     bindings: Object.fromEntries((template.props ?? []).map((prop) => [prop.name, prop.name])),
@@ -222,7 +229,7 @@ export function emitLiquid(
   node: Node,
   indent = 0,
   componentRegistry: BuildTemplate["componentRegistry"] = {},
-  scope: LiquidScope = {},
+  scope: LiquidScope = createEmptyLiquidScope(),
   options: TargetEmitOptions = {},
 ): string {
   const minify = options.minify ?? false;

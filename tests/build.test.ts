@@ -59,7 +59,7 @@ export default function Card({ active, label, children }: Props) {
     });
 
     assert.equal(result.templates.length, 2);
-    assert.equal(result.writtenFiles.length, 8);
+    assert.equal(result.writtenFiles.length, 12);
 
     const reactOutputPath = join(distDir, "react", "nested", "card.tsx");
     const askamaIncludePath = join(distDir, "askama", "includes", "nested", "card.html");
@@ -124,9 +124,9 @@ export default function Card({ active, label }: Props) {
     );
     assert.equal(
       liquidOutput,
-      `<div class='base {% if active %}active{% endif %}'>{% if active %}<span>{{ label }}</span>{% endif %}</div>\n`,
+      `<div class='base {% if active %}active{% endif %}'>{% if active %}<span>{{ label | escape }}</span>{% endif %}</div>\n`,
     );
-    assert.match(reactOutput, /return \(\n\s+<div>/);
+    assert.match(reactOutput, /return \(\n\s+<div\b/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

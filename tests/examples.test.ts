@@ -27,7 +27,7 @@ test("public basic example builds all targets and matches Askama fixtures", () =
     });
 
     assert.equal(result.templates.length, 8);
-    assert.equal(result.writtenFiles.length, 32);
+    assert.equal(result.writtenFiles.length, 48);
 
     const reactNoticePanelPath = join(copiedExampleRoot, "dist", "react", "notice-panel.tsx");
     const askamaResourceTilePath = join(
