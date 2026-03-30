@@ -2,7 +2,12 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AskamaBuildPaths, BuildTemplate, ComponentRegistry } from "./types.js";
+import type {
+  AskamaBuildPaths,
+  BuildTargetSelection,
+  BuildTemplate,
+  ComponentRegistry,
+} from "./types.js";
 import { parseTemplateFile } from "./parser.js";
 import { outputTargets } from "../targets/index.js";
 import type { TargetEmitOptions } from "./types.js";
@@ -11,6 +16,7 @@ export interface BuildProjectOptions {
   projectRoot?: string;
   distDir?: string;
   templatesDir?: string;
+  targets?: string[];
   askamaIncludePrefix?: string;
   minify?: boolean;
   logger?: Pick<Console, "log">;
@@ -19,6 +25,23 @@ export interface BuildProjectOptions {
 export interface BuildProjectResult {
   templates: BuildTemplate[];
   writtenFiles: string[];
+}
+
+function selectOutputTargets(options: BuildTargetSelection = {}) {
+  const allTargetIds = outputTargets.map((target) => target.id);
+
+  if (!options.targets || options.targets.length === 0) {
+    return outputTargets;
+  }
+
+  const unknownTargets = options.targets.filter((target) => !allTargetIds.includes(target));
+  if (unknownTargets.length > 0) {
+    throw new Error(
+      `Unknown target(s): ${unknownTargets.join(", ")}. Available: ${allTargetIds.join(", ")}`,
+    );
+  }
+
+  return outputTargets.filter((target) => options.targets?.includes(target.id));
 }
 
 /**
@@ -93,6 +116,7 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
   const emitOptions: TargetEmitOptions = {
     minify: options.minify,
   };
+  const activeTargets = selectOutputTargets(options);
   const logger = options.logger ?? console;
   const writtenFiles: string[] = [];
 
@@ -151,7 +175,7 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
     template.componentRegistry = componentRegistry;
     const templateDir = dirname(template.relativePath);
 
-    for (const target of outputTargets) {
+    for (const target of activeTargets) {
       for (const output of target.emitFiles(template, emitOptions)) {
         const outputPath = join(distDir, target.outputSubdir, templateDir, output.fileName);
         mkdirSync(dirname(outputPath), { recursive: true });

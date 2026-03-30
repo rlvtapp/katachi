@@ -94,6 +94,12 @@ If you want compact HTML-style output for the generated Askama include and Liqui
 pnpm exec katachi build --minify
 ```
 
+If you only want specific outputs:
+
+```bash
+pnpm exec katachi build --target react --target liquid
+```
+
 ## First Template
 
 Start with a normal `.template.tsx` file:

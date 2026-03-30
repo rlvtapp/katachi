@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { buildProject } from "../core/build.js";
 import { verifyAskamaFixtures } from "../core/verify.js";
 import { basicExampleRoot, createExampleFixtures, exampleFixtures } from "../core/example-fixtures.js";
+import { outputTargets } from "../targets/index.js";
 
 type Command = "build" | "verify:askama" | "verify:examples" | "help";
 
@@ -11,6 +12,7 @@ interface CliOptions {
   projectRoot?: string;
   distDir?: string;
   templatesDir?: string;
+  targets?: string[];
   askamaIncludePrefix?: string;
   minify?: boolean;
 }
@@ -19,14 +21,17 @@ function printHelp(): void {
   console.log(`Katachi
 
 Usage:
-  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>] [--askama-prefix <path>] [--minify]
+  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>] [--target <name>]... [--askama-prefix <path>] [--minify]
   katachi verify:examples
   katachi help
 
 Defaults:
   --project   current working directory
   --templates <project>/src/templates
-  --dist      <project>/dist`);
+  --dist      <project>/dist
+
+Available targets:
+  ${outputTargets.map((target) => target.id).join(", ")}`);
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -61,6 +66,13 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (current === "--target" && next) {
+      options.targets ??= [];
+      options.targets.push(next);
+      index += 1;
+      continue;
+    }
+
     if (current === "--askama-prefix" && next) {
       options.askamaIncludePrefix = next;
       index += 1;
@@ -91,6 +103,7 @@ function run(): void {
       projectRoot: options.projectRoot,
       templatesDir: options.templatesDir,
       distDir: options.distDir,
+      targets: options.targets,
       askamaIncludePrefix: options.askamaIncludePrefix,
       minify: options.minify,
     });

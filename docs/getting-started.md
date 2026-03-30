@@ -132,6 +132,12 @@ If you want compact Askama include and Liquid output, add:
 pnpm exec katachi build --minify
 ```
 
+If you only want a subset of targets, repeat `--target`:
+
+```bash
+pnpm exec katachi build --target react --target liquid
+```
+
 ## 5. Consume the generated files
 
 By default, Katachi writes:

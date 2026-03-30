@@ -131,3 +131,41 @@ export default function Card({ active, label }: Props) {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("buildProject can emit only selected targets", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "katachi-build-targets-"));
+
+  try {
+    const templatesDir = join(tempRoot, "templates");
+    const distDir = join(tempRoot, "dist");
+    mkdirSync(templatesDir, { recursive: true });
+
+    writeFileSync(
+      join(templatesDir, "badge.template.tsx"),
+      `export type Props = {
+  label: string;
+};
+
+export default function Badge({ label }: Props) {
+  return <span>{label}</span>;
+}
+`,
+      "utf8",
+    );
+
+    const result = buildProject({
+      templatesDir,
+      distDir,
+      targets: ["react", "liquid"],
+      logger: silentLogger,
+    });
+
+    assert.equal(result.writtenFiles.length, 2);
+    assert.ok(existsSync(join(distDir, "react", "badge.tsx")));
+    assert.ok(existsSync(join(distDir, "liquid", "badge.liquid")));
+    assert.equal(existsSync(join(distDir, "askama", "badge.rs")), false);
+    assert.equal(existsSync(join(distDir, "askama", "includes", "badge.html")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

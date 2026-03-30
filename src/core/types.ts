@@ -66,6 +66,10 @@ export interface TargetEmitOptions {
   minify?: boolean;
 }
 
+export interface BuildTargetSelection {
+  targets?: string[];
+}
+
 /**
  * Contract implemented by a concrete output format.
  */
