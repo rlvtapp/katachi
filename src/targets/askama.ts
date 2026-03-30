@@ -9,6 +9,7 @@ import {
 } from "./html.js";
 import {
   emitAskamaExpr,
+  emitInterpolatedTagName,
   escapeDoubleQuotes,
   toSnakeCase,
   toRustType,
@@ -57,11 +58,24 @@ function emitAskamaAttr(name: string, value: AttrValue, scope: AskamaScope): str
           parts.push(item.value);
           continue;
         }
+        if (item.kind === "dynamic") {
+          parts.push(`{{ ${emitAskamaExpr(item.expr)} }}`);
+          continue;
+        }
 
         parts.push(`{% if ${emitScopedAskamaExpr(item.test, scope)} %}${item.value}{% endif %}`);
       }
 
       return `${normalizedName}=${wrapHtmlAttribute(parts.join(" ").trim())}`;
+    }
+    case "concat": {
+      const segments = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        return `{{ ${emitAskamaExpr(part)} }}`;
+      });
+      return `${name}=${wrapHtmlAttribute(segments.join(""))}`;
     }
   }
 }
@@ -132,14 +146,16 @@ export function emitAskama(
         emitAskama(child, indent + 1, componentRegistry, scope, options),
       );
 
+      const tagName = emitInterpolatedTagName(node.tag, (expr) => emitScopedAskamaExpr(expr, scope));
+
       if (children.length === 0) {
-        if (isVoidHtmlElement(node.tag)) {
-          return `${pad}<${node.tag}${attrs}/>`;
+        if (node.tag.kind === "static" && isVoidHtmlElement(node.tag.name)) {
+          return `${pad}<${tagName}${attrs}/>`;
         }
-        return `${pad}<${node.tag}${attrs}></${node.tag}>`;
+        return `${pad}<${tagName}${attrs}></${tagName}>`;
       }
 
-      return `${pad}<${node.tag}${attrs}>${joiner}${children.join(joiner)}${joiner}${pad}</${node.tag}>`;
+      return `${pad}<${tagName}${attrs}>${joiner}${children.join(joiner)}${joiner}${pad}</${tagName}>`;
     }
     case "component": {
       const registration = componentRegistry[node.name];

@@ -100,6 +100,28 @@ export default function Badge({ active }: Props) {
   assert.match(output, /className=\{`base \$\{active \? "active" : ""\}`\}/);
 });
 
+test("React and static JSX emitters handle dynamic class items and concat attrs", () => {
+  const template = buildTemplate(`
+export type Props = {
+  variant: string;
+  active: boolean;
+};
+
+export default function Example({ variant, active }: Props) {
+  return <a className={["base", variant, active && "active"]} href={["#", variant, "-link"]}>link</a>;
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const staticOutput = emitStaticJsxComponent(template);
+
+  assert.match(reactOutput, /className=\{\["base", variant, active \? "active" : null\]\.filter\(Boolean\)\.join\(" "\)\}/);
+  assert.match(reactOutput, /href=\{`#\$\{variant\}-link`\}/);
+
+  assert.match(staticOutput, /className=\{`base \$\{variant\} \$\{active \? "active" : ""\}`\}/);
+  assert.match(staticOutput, /href=\{`#\$\{variant\}-link`\}/);
+});
+
 test("React emitter keys single-child For loops with a Fragment wrapper", () => {
   const template = buildTemplate(`
 export type Props = {
@@ -203,6 +225,28 @@ export default function Callout({ open, label, children }: Props) {
   assert.match(output, /class='base {% if open %}active{% endif %}'/);
   assert.match(output, /{% render 'icon', icon: label, size: "16" %}/);
   assert.match(output, /{{ children }}/);
+});
+
+test("Askama and Liquid emitters handle dynamic class items and concat attrs", () => {
+  const template = buildTemplate(`
+export type Props = {
+  variant: string;
+  active: boolean;
+};
+
+export default function Example({ variant, active }: Props) {
+  return <a className={["base", variant, active && "active"]} href={["#", variant, "-link"]}>link</a>;
+}
+`);
+
+  const askamaOutput = emitAskamaPartial(template);
+  const liquidOutput = emitLiquidTemplate(template);
+
+  assert.match(askamaOutput, /class='base {{ variant }} {% if active %}active{% endif %}'/);
+  assert.match(askamaOutput, /href='#{{ variant }}-link'/);
+
+  assert.match(liquidOutput, /class='base {{ variant }} {% if active %}active{% endif %}'/);
+  assert.match(liquidOutput, /href='#{{ variant }}-link'/);
 });
 
 test("Askama component wrappers reference generated include files", () => {
@@ -340,6 +384,200 @@ export default function Example({ items, label, errorMessage, children }: Props)
   assert.match(askamaOutput, /{% if items\.len\(\) == 0 %}/);
   assert.match(askamaOutput, /{% if label\.is_some\(\) && !\(label\.is_empty\(\)\) %}/);
   assert.match(askamaOutput, /{% if error_message\.is_none\(\) %}/);
+});
+
+test("dynamic Element tags lower across React, static JSX, Askama, and Liquid", () => {
+  const template = buildTemplate(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  level: number;
+  title: string;
+};
+
+export default function Example({ level, title }: Props) {
+  return (
+    <Element tag={["h", level]} className="headline">
+      {title}
+    </Element>
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const staticOutput = emitStaticJsxComponent(template);
+  const askamaOutput = emitAskamaPartial(template);
+  const liquidOutput = emitLiquidTemplate(template);
+
+  assert.match(reactOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(reactOutput, /<Tag[\s\S]*className="headline"/);
+  assert.match(staticOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(askamaOutput, /<h{{ level }}[\s\S]*class='headline'[\s\S]*>/);
+  assert.match(askamaOutput, /<\/h{{ level }}>/);
+  assert.match(liquidOutput, /<h{{ level }}[\s\S]*class='headline'[\s\S]*>/);
+  assert.match(liquidOutput, /<\/h{{ level }}>/);
+});
+
+test("dynamic Element supports plain tag variables across targets", () => {
+  const template = buildTemplate(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  tagName: string;
+  title: string;
+};
+
+export default function Example({ tagName, title }: Props) {
+  return <Element tag={tagName}>{title}</Element>;
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const askamaOutput = emitAskamaPartial(template);
+  const liquidOutput = emitLiquidTemplate(template);
+
+  assert.match(reactOutput, /const Tag = tagName as ElementType;/);
+  assert.match(reactOutput, /<Tag>/);
+  assert.match(askamaOutput, /<{{ tag_name }}>[\s\S]*{{ title }}[\s\S]*<\/{{ tag_name }}>/);
+  assert.match(liquidOutput, /<{{ tagName }}>[\s\S]*{{ title \| escape }}[\s\S]*<\/{{ tagName }}>/);
+});
+
+test("dynamic Element tags inside loops fall back to scoped React emission", () => {
+  const template = buildTemplate(`
+import { Element, For } from "@relevate/katachi";
+
+export type Props = {
+  levels: number[];
+  title: string;
+};
+
+export default function Example({ levels, title }: Props) {
+  return (
+    <section>
+      <For each={levels} as="level">
+        <Element tag={["h", level]}>{title}</Element>
+      </For>
+    </section>
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const staticOutput = emitStaticJsxComponent(template);
+
+  assert.doesNotMatch(reactOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(reactOutput, /const KatachiTag = `h\$\{level\}`;/);
+  assert.match(reactOutput, /<KatachiTag>/);
+  assert.doesNotMatch(staticOutput, /const Tag = `h\$\{level\}` as ElementType;/);
+  assert.match(staticOutput, /const KatachiTag = `h\$\{level\}`;/);
+});
+
+test("multiple hoisted dynamic Element tags use stable sequential names", () => {
+  const template = buildTemplate(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  headingLevel: number;
+  subheadingLevel: number;
+  title: string;
+  subtitle: string;
+};
+
+export default function Example({ headingLevel, subheadingLevel, title, subtitle }: Props) {
+  return (
+    <section>
+      <Element tag={["h", headingLevel]}>{title}</Element>
+      <Element tag={["h", subheadingLevel]}>{subtitle}</Element>
+    </section>
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+
+  assert.match(reactOutput, /const Tag = `h\$\{headingLevel\}` as ElementType;/);
+  assert.match(reactOutput, /const Tag2 = `h\$\{subheadingLevel\}` as ElementType;/);
+  assert.match(reactOutput, /<Tag>/);
+  assert.match(reactOutput, /<Tag2>/);
+});
+
+test("React emitter compiles isEmpty() intrinsic to JS expression, not raw text", () => {
+  const template = buildTemplate(`
+import { If, isEmpty } from "@relevate/katachi";
+
+export type Props = {
+  label?: string;
+};
+
+export default function Example({ label }: Props) {
+  return (
+    <section>
+      <If test={isEmpty(label)}>
+        <p>No label</p>
+      </If>
+    </section>
+  );
+}
+`);
+
+  const output = emitReactComponent(template);
+
+  assert.doesNotMatch(output, /isEmpty\(/);
+  assert.match(output, /\(\(label\?\.length \?\? 0\) === 0\)/);
+});
+
+test("React emitter converts concat style attributes to CSSProperties objects", () => {
+  const template = buildTemplate(`
+export type Props = {
+  color: string;
+};
+
+export default function Example({ color }: Props) {
+  return <div style={["background-color: ", color, "; padding: 8px"]} />;
+}
+`);
+
+  const output = emitReactComponent(template);
+
+  assert.doesNotMatch(output, /style=\{\[/);
+  assert.match(output, /backgroundColor/);
+  assert.match(output, /padding/);
+});
+
+test("React emitter converts static style strings and camelCases HTML attrs", () => {
+  const template = buildTemplate(`
+export type Props = {
+  label: string;
+};
+
+export default function Example({ label }: Props) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      stroke-width="2"
+      stroke-linecap="round"
+      tabindex="0"
+      contenteditable="true"
+      style="font-variant-ligatures: none; color: red"
+    >
+      <text>{label}</text>
+    </svg>
+  );
+}
+`);
+
+  const output = emitReactComponent(template);
+
+  assert.match(output, /viewBox=/);
+  assert.match(output, /strokeWidth=/);
+  assert.match(output, /strokeLinecap=/);
+  assert.match(output, /tabIndex=/);
+  assert.match(output, /contentEditable=\{true\}/);
+  assert.doesNotMatch(output, /stroke-width=/);
+  assert.doesNotMatch(output, /contenteditable=/);
+  assert.doesNotMatch(output, /style="font-variant/);
+  assert.match(output, /fontVariantLigatures/);
+  assert.match(output, /color: "red"/);
 });
 
 test("fragment roots emit cleanly in Askama and React targets", () => {

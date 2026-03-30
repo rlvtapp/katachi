@@ -186,6 +186,51 @@ export default function Example({ label }: Props) {
   assert.equal(component.props?.class, undefined);
 });
 
+test("parseTemplateFile supports dynamic class items and concat attrs", () => {
+  const parsed = parseTemplateFile(`
+export type Props = {
+  variant: string;
+  active: boolean;
+};
+
+export default function Example({ variant, active }: Props) {
+  return <a className={["base", variant, active && "active"]} href={["#", variant, "-link"]}>Link</a>;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected root element");
+  }
+
+  const classAttr = parsed.template.attrs?.class;
+  assert.ok(classAttr);
+  assert.equal(classAttr?.kind, "classList");
+  if (classAttr?.kind !== "classList") {
+    throw new Error("expected class list");
+  }
+
+  assert.deepEqual(classAttr.items[0], { kind: "static", value: "base" });
+  assert.equal(classAttr.items[1]?.kind, "dynamic");
+  if (classAttr.items[1]?.kind !== "dynamic") {
+    throw new Error("expected dynamic class item");
+  }
+  assert.equal(classAttr.items[1].expr.kind, "var");
+  assert.equal(classAttr.items[2]?.kind, "when");
+
+  const hrefAttr = parsed.template.attrs?.href;
+  assert.ok(hrefAttr);
+  assert.equal(hrefAttr?.kind, "concat");
+  if (hrefAttr?.kind !== "concat") {
+    throw new Error("expected concat href");
+  }
+
+  assert.equal(hrefAttr.parts.length, 3);
+  assert.equal(hrefAttr.parts[0]?.kind, "string");
+  assert.equal(hrefAttr.parts[1]?.kind, "var");
+  assert.equal(hrefAttr.parts[2]?.kind, "string");
+});
+
 test("parseTemplateFile wraps multi-root templates in a fragment", () => {
   const parsed = parseTemplateFile(`
 export default function Example() {
@@ -280,7 +325,7 @@ export default function Example() {
     throw new Error("expected script root");
   }
 
-  assert.equal(parsed.template.tag, "script");
+  assert.deepEqual(parsed.template.tag, { kind: "static", name: "script" });
   assert.equal(parsed.template.children?.[0]?.kind, "text");
   if (parsed.template.children?.[0]?.kind !== "text") {
     throw new Error("expected raw text child");
@@ -357,13 +402,13 @@ export default function Page({ title }: Props) {
     throw new Error("expected root section");
   }
 
-  assert.equal(parsed.template.tag, "section");
+  assert.deepEqual(parsed.template.tag, { kind: "static", name: "section" });
   assert.equal(parsed.template.children?.[0]?.kind, "element");
   if (parsed.template.children?.[0]?.kind !== "element") {
     throw new Error("expected expanded helper root");
   }
 
-  assert.equal(parsed.template.children[0].tag, "div");
+  assert.deepEqual(parsed.template.children[0].tag, { kind: "static", name: "div" });
   const helperRoot = parsed.template.children[0];
   assert.equal(helperRoot.attrs?.class?.kind, "classList");
   if (helperRoot.attrs?.class?.kind !== "classList") {
@@ -375,7 +420,7 @@ export default function Page({ title }: Props) {
   if (helperRoot.children?.[0]?.kind !== "element") {
     throw new Error("expected span child");
   }
-  assert.equal(helperRoot.children[0].tag, "span");
+  assert.deepEqual(helperRoot.children[0].tag, { kind: "static", name: "span" });
   assert.equal(helperRoot.children[0].children?.[0]?.kind, "print");
   if (helperRoot.children?.[1]?.kind !== "if") {
     throw new Error("expected conditional child");

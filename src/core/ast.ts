@@ -19,14 +19,20 @@ export type Expr =
 
 export type ClassItem =
   | { kind: "static"; value: string }
-  | { kind: "when"; test: Expr; value: string };
+  | { kind: "when"; test: Expr; value: string }
+  | { kind: "dynamic"; expr: Expr };
 
 export type AttrValue =
   | { kind: "text"; value: string }
   | { kind: "expr"; expr: Expr }
-  | { kind: "classList"; items: ClassItem[] };
+  | { kind: "classList"; items: ClassItem[] }
+  | { kind: "concat"; parts: Expr[] };
 
 export type TargetAttrs = Record<string, Record<string, AttrValue>>;
+
+export type TagName =
+  | { kind: "static"; name: string }
+  | { kind: "dynamic"; parts: Expr[] };
 
 export type Node =
   | { kind: "fragment"; children: Node[] }
@@ -44,7 +50,7 @@ export type Node =
     }
   | {
       kind: "element";
-      tag: string;
+      tag: TagName;
       attrs?: Record<string, AttrValue>;
       targetAttrs?: TargetAttrs;
       children?: Node[];
@@ -79,6 +85,7 @@ export const not = (expr: Expr): Expr => ({ kind: "not", expr });
 export const textAttr = (value: string): AttrValue => ({ kind: "text", value });
 export const exprAttr = (expr: Expr): AttrValue => ({ kind: "expr", expr });
 export const classList = (...items: ClassItem[]): AttrValue => ({ kind: "classList", items });
+export const concatAttr = (...parts: Expr[]): AttrValue => ({ kind: "concat", parts });
 
 export const textNode = (value: string): Node => ({ kind: "text", value });
 export const fragmentNode = (children: Node[] = []): Node => ({ kind: "fragment", children });
@@ -104,13 +111,13 @@ export const forNode = (
   indexName,
 });
 export const elementNode = (
-  tag: string,
+  tag: string | TagName,
   attrs: Record<string, AttrValue> = {},
   targetAttrs: TargetAttrs = {},
   children: Node[] = [],
 ): Node => ({
   kind: "element",
-  tag,
+  tag: typeof tag === "string" ? { kind: "static", name: tag } : tag,
   attrs,
   targetAttrs,
   children,

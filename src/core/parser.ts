@@ -1,7 +1,8 @@
-import type { AttrValue, ClassItem, Expr, Node, TargetAttrs } from "./ast.js";
+import type { AttrValue, ClassItem, Expr, Node, TagName, TargetAttrs } from "./ast.js";
 import {
   and,
   classList,
+  concatAttr,
   componentNode,
   doctypeNode,
   elementNode,
@@ -169,6 +170,53 @@ function findTopLevelOperator(input: string, operator: string): number {
   return -1;
 }
 
+function findLastTopLevelOperator(input: string, operator: string): number {
+  let depthParen = 0;
+  let depthBracket = 0;
+  let depthBrace = 0;
+  let quote: string | null = null;
+  let lastIndex = -1;
+
+  for (let index = 0; index <= input.length - operator.length; index += 1) {
+    const char = input[index];
+    const next = input[index + 1];
+
+    if (quote) {
+      if (char === "\\" && next) {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "(") depthParen += 1;
+    if (char === ")") depthParen -= 1;
+    if (char === "[") depthBracket += 1;
+    if (char === "]") depthBracket -= 1;
+    if (char === "{") depthBrace += 1;
+    if (char === "}") depthBrace -= 1;
+
+    if (
+      depthParen === 0 &&
+      depthBracket === 0 &&
+      depthBrace === 0 &&
+      input.slice(index, index + operator.length) === operator
+    ) {
+      lastIndex = index;
+    }
+  }
+
+  return lastIndex;
+}
+
 function unquote(value: string): string {
   const trimmed = value.trim();
   if (
@@ -311,10 +359,12 @@ function parseClassList(source: string): AttrValue {
   const input = source.trim();
   const listBody = input.slice(1, -1);
   const items: ClassItem[] = splitTopLevel(listBody, ",").map((item) => {
-    if (item.includes("&&")) {
-      const parts = item.split("&&").map((part) => part.trim());
-      const value = parts.at(-1) ?? "";
-      const test = parts.slice(0, -1).join(" && ");
+    const trimmed = item.trim();
+    const andIndex = findLastTopLevelOperator(trimmed, "&&");
+
+    if (andIndex !== -1) {
+      const test = trimmed.slice(0, andIndex).trim();
+      const value = trimmed.slice(andIndex + 2).trim();
       return {
         kind: "when",
         test: parseExpr(test),
@@ -322,9 +372,26 @@ function parseClassList(source: string): AttrValue {
       };
     }
 
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      return {
+        kind: "static",
+        value: unquote(trimmed),
+      };
+    }
+
+    if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(trimmed)) {
+      return {
+        kind: "dynamic",
+        expr: v(trimmed),
+      };
+    }
+
     return {
-      kind: "static",
-      value: unquote(item),
+      kind: "dynamic",
+      expr: parseExpr(trimmed),
     };
   });
 
@@ -342,6 +409,11 @@ function parseAttrValue(name: string, source: string): AttrValue {
       inner.endsWith("]")
     ) {
       return parseClassList(inner);
+    }
+    if (inner.startsWith("[") && inner.endsWith("]")) {
+      const arrayBody = inner.slice(1, -1);
+      const parts = splitTopLevel(arrayBody, ",").map((part) => parseExpr(part.trim()));
+      return concatAttr(...parts);
     }
     return exprAttr(parseExpr(inner));
   }
@@ -550,6 +622,29 @@ function normalizeElementAttrs(attrs: Record<string, AttrValue>): Record<string,
   return normalized;
 }
 
+function parseDynamicTag(value: AttrValue | undefined): TagName {
+  if (!value) {
+    throw new Error("<Element> requires a `tag={...}` prop");
+  }
+
+  if (value.kind === "text") {
+    return { kind: "dynamic", parts: [s(value.value)] };
+  }
+
+  if (value.kind === "expr") {
+    return { kind: "dynamic", parts: [value.expr] };
+  }
+
+  if (value.kind === "concat") {
+    if (value.parts.length === 0) {
+      throw new Error("<Element> requires at least one tag part");
+    }
+    return { kind: "dynamic", parts: value.parts };
+  }
+
+  throw new Error("<Element> tag must be a string, expression, or string/expression tuple");
+}
+
 function readOpenTag(source: string, startIndex: number): string {
   let index = startIndex;
   let quote: string | null = null;
@@ -694,10 +789,17 @@ function parseNodes(
       }
 
         if (selfClosing) {
-        if (/^[A-Z]/.test(tagName)) {
-          nodes.push(componentNode(tagName, attrs, targetAttrs));
-        } else {
-          nodes.push(elementNode(tagName, normalizeElementAttrs(attrs), targetAttrs));
+      if (tagName === "Element") {
+        const normalizedAttrs = normalizeElementAttrs(attrs);
+        const { tag: tagAttr, ...restAttrs } = normalizedAttrs;
+        nodes.push(elementNode(parseDynamicTag(tagAttr), restAttrs, targetAttrs));
+        continue;
+      }
+
+      if (/^[A-Z]/.test(tagName)) {
+        nodes.push(componentNode(tagName, attrs, targetAttrs));
+      } else {
+        nodes.push(elementNode(tagName, normalizeElementAttrs(attrs), targetAttrs));
         }
         continue;
       }
@@ -740,6 +842,15 @@ function parseNodes(
           ? readRawTagContent(source, index, tagName)
           : parseNodes(source, index, tagName, varTypes);
       index = parsedChildren.nextIndex;
+
+      if (tagName === "Element") {
+        const normalizedAttrs = normalizeElementAttrs(attrs);
+        const { tag: tagAttr, ...restAttrs } = normalizedAttrs;
+        nodes.push(
+          elementNode(parseDynamicTag(tagAttr), restAttrs, targetAttrs, parsedChildren.nodes),
+        );
+        continue;
+      }
 
       if (/^[A-Z]/.test(tagName)) {
         nodes.push(componentNode(tagName, attrs, targetAttrs, parsedChildren.nodes));
@@ -1005,7 +1116,25 @@ function cloneExpr(expr: Expr, bindings: Record<string, LocalBinding>): Expr {
         return s(binding.value.value);
       }
 
-      return raw(binding.value.items.map((item) => (item.kind === "static" ? item.value : "")).join(" ").trim());
+      if (binding.value.kind === "classList") {
+        return raw(
+          binding.value.items
+            .map((item) => {
+              if (item.kind === "static") {
+                return item.value;
+              }
+              return "";
+            })
+            .join(" ")
+            .trim(),
+        );
+      }
+
+      return raw(
+        binding.value.parts
+          .map((part) => (part.kind === "string" ? part.value : ""))
+          .join(""),
+      );
     }
     case "intrinsic":
       return {
@@ -1041,8 +1170,15 @@ function cloneAttrValue(value: AttrValue, bindings: Record<string, LocalBinding>
         items: value.items.map((item) =>
           item.kind === "static"
             ? item
-            : { kind: "when", test: cloneExpr(item.test, bindings), value: item.value },
+            : item.kind === "dynamic"
+              ? { kind: "dynamic", expr: cloneExpr(item.expr, bindings) }
+              : { kind: "when", test: cloneExpr(item.test, bindings), value: item.value },
         ),
+      };
+    case "concat":
+      return {
+        kind: "concat",
+        parts: value.parts.map((part) => cloneExpr(part, bindings)),
       };
     default:
       return value;

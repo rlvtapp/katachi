@@ -5,7 +5,7 @@ import {
   isVoidHtmlElement,
   normalizeHtmlAttributeName,
 } from "./html.js";
-import { escapeDoubleQuotes, wrapHtmlAttribute } from "./shared.js";
+import { emitInterpolatedTagName, escapeDoubleQuotes, wrapHtmlAttribute } from "./shared.js";
 
 type LiquidScope = {
   bindings: Record<string, string>;
@@ -188,10 +188,23 @@ function emitLiquidAttr(name: string, value: AttrValue, scope: LiquidScope): str
           parts.push(item.value);
           continue;
         }
+        if (item.kind === "dynamic") {
+          parts.push(`{{ ${emitScopedLiquidExpr(item.expr, scope)} }}`);
+          continue;
+        }
 
         parts.push(`{% if ${emitScopedLiquidExpr(item.test, scope)} %}${item.value}{% endif %}`);
       }
       return `${normalizedName}=${wrapHtmlAttribute(parts.join(" ").trim())}`;
+    }
+    case "concat": {
+      const parts = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        return `{{ ${emitScopedLiquidExpr(part, scope)} }}`;
+      });
+      return `${normalizedName}=${wrapHtmlAttribute(parts.join(""))}`;
     }
   }
 }
@@ -213,12 +226,30 @@ function emitLiquidRenderArgValue(propName: string, value: AttrValue, scope: Liq
           parts.push(item.value);
           continue;
         }
+        if (item.kind === "dynamic") {
+          parts.push(`{{ ${emitScopedLiquidExpr(item.expr, scope)} }}`);
+          continue;
+        }
 
         parts.push(`{% if ${emitScopedLiquidExpr(item.test, scope)} %}${item.value}{% endif %}`);
       }
 
       return {
         setup: [`{% capture ${variableName} %}${parts.join(" ").trim()}{% endcapture %}`],
+        arg: `${propName}: ${variableName}`,
+      };
+    }
+    case "concat": {
+      const variableName = `__${propName}`;
+      const parts = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        return `{{ ${emitScopedLiquidExpr(part, scope)} }}`;
+      });
+
+      return {
+        setup: [`{% capture ${variableName} %}${parts.join("")}{% endcapture %}`],
         arg: `${propName}: ${variableName}`,
       };
     }
@@ -298,14 +329,16 @@ export function emitLiquid(
         emitLiquid(child, indent + 1, componentRegistry, scope, options),
       );
 
+      const tagName = emitInterpolatedTagName(node.tag, (expr) => emitScopedLiquidExpr(expr, scope));
+
       if (children.length === 0) {
-        if (isVoidHtmlElement(node.tag)) {
-          return `${pad}<${node.tag}${attrs}/>`;
+        if (node.tag.kind === "static" && isVoidHtmlElement(node.tag.name)) {
+          return `${pad}<${tagName}${attrs}/>`;
         }
-        return `${pad}<${node.tag}${attrs}></${node.tag}>`;
+        return `${pad}<${tagName}${attrs}></${tagName}>`;
       }
 
-      return `${pad}<${node.tag}${attrs}>${joiner}${children.join(joiner)}${joiner}${pad}</${node.tag}>`;
+      return `${pad}<${tagName}${attrs}>${joiner}${children.join(joiner)}${joiner}${pad}</${tagName}>`;
     }
     case "component": {
       const registration = componentRegistry[node.name];

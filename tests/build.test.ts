@@ -8,6 +8,28 @@ import { buildProject } from "../src/core/build";
 
 const silentLogger = { log() {} };
 
+function scaffoldMinimalProject(): { tempRoot: string; templatesDir: string; distDir: string } {
+  const tempRoot = mkdtempSync(join(tmpdir(), "katachi-target-"));
+  const templatesDir = join(tempRoot, "templates");
+  const distDir = join(tempRoot, "dist");
+  mkdirSync(templatesDir, { recursive: true });
+
+  writeFileSync(
+    join(templatesDir, "badge.template.tsx"),
+    `export type Props = {
+  label: string;
+};
+
+export default function Badge({ label }: Props) {
+  return <span className="badge">{label}</span>;
+}
+`,
+    "utf8",
+  );
+
+  return { tempRoot, templatesDir, distDir };
+}
+
 test("buildProject writes all configured targets and resolves nested imports", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "katachi-build-"));
 
@@ -165,6 +187,64 @@ export default function Badge({ label }: Props) {
     assert.ok(existsSync(join(distDir, "liquid", "badge.liquid")));
     assert.equal(existsSync(join(distDir, "askama", "badge.rs")), false);
     assert.equal(existsSync(join(distDir, "askama", "includes", "badge.html")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildProject emits all targets when targets are omitted", () => {
+  const { tempRoot, templatesDir, distDir } = scaffoldMinimalProject();
+
+  try {
+    const result = buildProject({
+      templatesDir,
+      distDir,
+      logger: silentLogger,
+    });
+
+    assert.equal(result.writtenFiles.length, 6);
+    assert.ok(existsSync(join(distDir, "react", "badge.tsx")));
+    assert.ok(existsSync(join(distDir, "jsx-static", "badge.tsx")));
+    assert.ok(existsSync(join(distDir, "askama", "badge.rs")));
+    assert.ok(existsSync(join(distDir, "askama", "includes", "badge.html")));
+    assert.ok(existsSync(join(distDir, "liquid", "badge.liquid")));
+    assert.ok(existsSync(join(distDir, "liquid", "snippets", "badge.liquid")));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildProject rejects unknown targets", () => {
+  const { tempRoot, templatesDir, distDir } = scaffoldMinimalProject();
+
+  try {
+    assert.throws(
+      () =>
+        buildProject({
+          templatesDir,
+          distDir,
+          targets: ["react", "nosuch"],
+          logger: silentLogger,
+        }),
+      /Unknown target\(s\): nosuch/,
+    );
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildProject treats an empty target list like all targets", () => {
+  const { tempRoot, templatesDir, distDir } = scaffoldMinimalProject();
+
+  try {
+    const result = buildProject({
+      templatesDir,
+      distDir,
+      targets: [],
+      logger: silentLogger,
+    });
+
+    assert.equal(result.writtenFiles.length, 6);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
