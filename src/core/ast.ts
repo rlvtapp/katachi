@@ -26,7 +26,11 @@ export type AttrValue =
   | { kind: "expr"; expr: Expr }
   | { kind: "classList"; items: ClassItem[] };
 
+export type TargetAttrs = Record<string, Record<string, AttrValue>>;
+
 export type Node =
+  | { kind: "fragment"; children: Node[] }
+  | { kind: "doctype"; value: string }
   | { kind: "text"; value: string }
   | { kind: "slot"; name: string }
   | { kind: "print"; expr: Expr; safe?: boolean }
@@ -38,8 +42,20 @@ export type Node =
       children: Node[];
       indexName?: string | null;
     }
-  | { kind: "element"; tag: string; attrs?: Record<string, AttrValue>; children?: Node[] }
-  | { kind: "component"; name: string; props?: Record<string, AttrValue>; children?: Node[] };
+  | {
+      kind: "element";
+      tag: string;
+      attrs?: Record<string, AttrValue>;
+      targetAttrs?: TargetAttrs;
+      children?: Node[];
+    }
+  | {
+      kind: "component";
+      name: string;
+      props?: Record<string, AttrValue>;
+      targetAttrs?: TargetAttrs;
+      children?: Node[];
+    };
 
 export const v = (name: string): Expr => ({ kind: "var", name });
 export const s = (value: string): Expr => ({ kind: "string", value });
@@ -65,6 +81,8 @@ export const exprAttr = (expr: Expr): AttrValue => ({ kind: "expr", expr });
 export const classList = (...items: ClassItem[]): AttrValue => ({ kind: "classList", items });
 
 export const textNode = (value: string): Node => ({ kind: "text", value });
+export const fragmentNode = (children: Node[] = []): Node => ({ kind: "fragment", children });
+export const doctypeNode = (value: string): Node => ({ kind: "doctype", value });
 export const slotNode = (name: string): Node => ({ kind: "slot", name });
 export const printNode = (expr: Expr, safe = false): Node => ({ kind: "print", expr, safe });
 export const ifNode = (test: Expr, thenNodes: Node[], elseNodes: Node[] = []): Node => ({
@@ -88,20 +106,24 @@ export const forNode = (
 export const elementNode = (
   tag: string,
   attrs: Record<string, AttrValue> = {},
+  targetAttrs: TargetAttrs = {},
   children: Node[] = [],
 ): Node => ({
   kind: "element",
   tag,
   attrs,
+  targetAttrs,
   children,
 });
 export const componentNode = (
   name: string,
   props: Record<string, AttrValue> = {},
+  targetAttrs: TargetAttrs = {},
   children: Node[] = [],
 ): Node => ({
   kind: "component",
   name,
   props,
+  targetAttrs,
   children,
 });

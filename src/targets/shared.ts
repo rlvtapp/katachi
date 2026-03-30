@@ -1,4 +1,4 @@
-import type { AttrValue, Expr, Node } from "../core/ast.js";
+import type { AttrValue, Expr, Node, TargetAttrs } from "../core/ast.js";
 import type { BuildTemplate } from "../core/types.js";
 
 /**
@@ -50,7 +50,13 @@ function translateRustExprToTsx(source: string): string {
  * Rewrites JS/TS equality operators into Askama-compatible syntax.
  */
 function translateTsxExprToAskama(source: string): string {
-  return source.replace(/\s===\s/g, " == ").replace(/\s!==\s/g, " != ");
+  return source
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*!==\s*null\b/g, "$1.is_some()")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*!=\s*null\b/g, "$1.is_some()")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*===\s*null\b/g, "$1.is_none()")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*==\s*null\b/g, "$1.is_none()")
+    .replace(/\s===\s/g, " == ")
+    .replace(/\s!==\s/g, " != ");
 }
 
 /**
@@ -137,15 +143,44 @@ export function emitAskamaExpr(expr: Expr): string {
   }
 }
 
-export type TsxAttrEmitter = (name: string, value: AttrValue) => string;
+export type TsxAttrEmitter = (name: string, value: AttrValue) => string | null;
+
+function mergeTargetScopedAttrs(
+  attrs: Record<string, AttrValue> | undefined,
+  targetAttrs: TargetAttrs | undefined,
+  target: string,
+): Record<string, AttrValue> {
+  return {
+    ...(attrs ?? {}),
+    ...(targetAttrs?.[target] ?? {}),
+  };
+}
 
 /**
  * Shared JSX/TSX tree emitter used by both React and static JSX targets.
  */
-export function emitTsxNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): string {
+export function emitTsxNode(
+  node: Node,
+  emitAttr: TsxAttrEmitter,
+  indent = 0,
+  targetName = "tsx",
+): string {
   const pad = "  ".repeat(indent);
 
   switch (node.kind) {
+    case "fragment": {
+      const children = (node.children ?? []).map((child) =>
+        emitTsxNode(child, emitAttr, indent + 1, targetName),
+      );
+
+      if (children.length === 0) {
+        return `${pad}<></>`;
+      }
+
+      return `${pad}<>\n${children.join("\n")}\n${pad}</>`;
+    }
+    case "doctype":
+      return `${pad}{${JSON.stringify(node.value)}}`;
     case "text":
       return `${pad}${node.value}`;
     case "slot":
@@ -154,10 +189,10 @@ export function emitTsxNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): s
       return `${pad}{${emitTsxExpr(node.expr)}}`;
     case "if": {
       const thenPart = node.then
-        .map((child) => emitTsxNode(child, emitAttr, indent + 2))
+        .map((child) => emitTsxNode(child, emitAttr, indent + 2, targetName))
         .join("\n");
       const elsePart = (node.else ?? [])
-        .map((child) => emitTsxNode(child, emitAttr, indent + 2))
+        .map((child) => emitTsxNode(child, emitAttr, indent + 2, targetName))
         .join("\n");
       if (elsePart) {
         return `${pad}{${emitTsxExpr(node.test)} ? (\n${pad}  <>\n${thenPart}\n${pad}  </>\n${pad}) : (\n${pad}  <>\n${elsePart}\n${pad}  </>\n${pad})}`;
@@ -169,18 +204,33 @@ export function emitTsxNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): s
       const iteratorArgs = node.indexName
         ? `${node.item}, ${node.indexName}`
         : `${node.item}, __index`;
+      if (
+        node.children.length === 1 &&
+        (node.children[0].kind === "element" ||
+          node.children[0].kind === "component" ||
+          node.children[0].kind === "fragment")
+      ) {
+        const onlyChild = emitTsxNode(node.children[0], emitAttr, indent + 1, targetName);
+        const keyName = node.indexName ?? "__index";
+        return `${pad}{(${eachExpr} ?? []).map((${iteratorArgs}) => (\n${pad}  <Fragment key={${keyName}}>\n${onlyChild}\n${pad}  </Fragment>\n${pad}))}`;
+      }
       const body = node.children
-        .map((child) => emitTsxNode(child, emitAttr, indent + 2))
+        .map((child) => emitTsxNode(child, emitAttr, indent + 2, targetName))
         .join("\n");
-      return `${pad}{(${eachExpr} ?? []).map((${iteratorArgs}) => (\n${pad}  <>\n${body}\n${pad}  </>\n${pad}))}`;
+      const keyName = node.indexName ?? "__index";
+      return `${pad}{(${eachExpr} ?? []).map((${iteratorArgs}) => (\n${pad}  <Fragment key={${keyName}}>\n${body}\n${pad}  </Fragment>\n${pad}))}`;
     }
     case "element": {
-      const attrEntries = Object.entries(node.attrs ?? {});
+      const attrEntries = Object.entries(
+        mergeTargetScopedAttrs(node.attrs, node.targetAttrs, targetName),
+      )
+        .map(([name, value]) => emitAttr(name, value))
+        .filter((entry): entry is string => entry != null);
       const multilineOpen = `${pad}<${node.tag}\n${attrEntries
-        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+        .map((entry) => `${pad}  ${entry}`)
         .join("\n")}\n${pad}>`;
       const children = (node.children ?? []).map((child) =>
-        emitTsxNode(child, emitAttr, indent + 1),
+        emitTsxNode(child, emitAttr, indent + 1, targetName),
       );
 
       if (children.length === 0) {
@@ -188,7 +238,7 @@ export function emitTsxNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): s
           return `${pad}<${node.tag} />`;
         }
         return `${pad}<${node.tag}\n${attrEntries
-          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+          .map((entry) => `${pad}  ${entry}`)
           .join("\n")}\n${pad}/>`;
       }
 
@@ -199,12 +249,16 @@ export function emitTsxNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): s
       return `${multilineOpen}\n${children.join("\n")}\n${pad}</${node.tag}>`;
     }
     case "component": {
-      const propEntries = Object.entries(node.props ?? {});
+      const propEntries = Object.entries(
+        mergeTargetScopedAttrs(node.props, node.targetAttrs, targetName),
+      )
+        .map(([name, value]) => emitAttr(name, value))
+        .filter((entry): entry is string => entry != null);
       const multilineOpen = `${pad}<${node.name}\n${propEntries
-        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+        .map((entry) => `${pad}  ${entry}`)
         .join("\n")}\n${pad}>`;
       const children = (node.children ?? []).map((child) =>
-        emitTsxNode(child, emitAttr, indent + 1),
+        emitTsxNode(child, emitAttr, indent + 1, targetName),
       );
 
       if (children.length === 0) {
@@ -212,7 +266,7 @@ export function emitTsxNode(node: Node, emitAttr: TsxAttrEmitter, indent = 0): s
           return `${pad}<${node.name} />`;
         }
         return `${pad}<${node.name}\n${propEntries
-          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+          .map((entry) => `${pad}  ${entry}`)
           .join("\n")}\n${pad}/>`;
       }
 
@@ -238,6 +292,16 @@ export function toCamelCase(value: string): string {
   return pascal.length === 0 ? pascal : pascal[0].toLowerCase() + pascal.slice(1);
 }
 
+export function toSnakeCase(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[-\s]+/g, "_")
+    .replace(/[^a-zA-Z0-9_]/g, "_")
+    .replace(/__+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
 export function toRustType(type: string): string {
   switch (type) {
     case "string":
@@ -248,9 +312,15 @@ export function toRustType(type: string): string {
       return "i64";
     case "children":
       return "&'a str";
+    case "template-node":
+      return "&'a str";
     case "string[]":
       return "&'a [&'a str]";
+    case "template-node[]":
+      return "&'a [&'a str]";
     case "string[][]":
+      return "&'a [&'a [&'a str]]";
+    case "template-node[][]":
       return "&'a [&'a [&'a str]]";
     default:
       return "&'a str";
@@ -267,6 +337,12 @@ export function toTsType(type: string): string {
       return "number";
     case "children":
       return "ReactNode";
+    case "template-node":
+      return "ReactNode";
+    case "template-node[]":
+      return "ReactNode[]";
+    case "template-node[][]":
+      return "ReactNode[][]";
     default:
       return type;
   }
@@ -298,7 +374,7 @@ export function buildTsxComponentSource(template: BuildTemplate, body: string): 
   const destructuredProps = props.map((prop) => prop.name).join(", ");
   const componentImports = buildTsxImportLines(template);
 
-  return `import type { ReactNode } from "react";
+  return `import { Fragment, type ReactNode } from "react";
 ${componentImports ? `${componentImports}\n` : ""}
 
 export type ${propsTypeName} = {
