@@ -249,3 +249,52 @@ test("buildProject treats an empty target list like all targets", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("buildProject applies askama include prefixes to component registrations", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "katachi-build-prefix-"));
+
+  try {
+    const templatesDir = join(tempRoot, "templates");
+    const distDir = join(tempRoot, "dist");
+    mkdirSync(join(templatesDir, "nested"), { recursive: true });
+
+    writeFileSync(
+      join(templatesDir, "icon.template.tsx"),
+      `export type Props = { icon: string };
+
+export default function Icon({ icon }: Props) {
+  return <svg data-icon={icon} />;
+}
+`,
+      "utf8",
+    );
+
+    writeFileSync(
+      join(templatesDir, "nested", "card.template.tsx"),
+      `import Icon from "../icon.template";
+
+export type Props = { label: string };
+
+export default function Card({ label }: Props) {
+  return <Icon icon={label} />;
+}
+`,
+      "utf8",
+    );
+
+    buildProject({
+      templatesDir,
+      distDir,
+      askamaIncludePrefix: "themes/basic/dist/askama/includes",
+      logger: silentLogger,
+    });
+
+    const askamaWrapper = readFileSync(join(distDir, "askama", "nested", "card.rs"), "utf8");
+    const askamaInclude = readFileSync(join(distDir, "askama", "includes", "nested", "card.html"), "utf8");
+
+    assert.match(askamaWrapper, /path = "themes\/basic\/dist\/askama\/includes\/nested\/card\.html"/);
+    assert.match(askamaInclude, /{% include "themes\/basic\/dist\/askama\/includes\/icon\.html" %}/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

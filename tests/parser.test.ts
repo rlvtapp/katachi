@@ -231,6 +231,36 @@ export default function Example({ variant, active }: Props) {
   assert.equal(hrefAttr.parts[2]?.kind, "string");
 });
 
+test("parseTemplateFile lowers Element tags into dynamic element nodes", () => {
+  const parsed = parseTemplateFile(`
+import { Element } from "@relevate/katachi";
+
+export type Props = {
+  level: number;
+  title: string;
+};
+
+export default function Example({ level, title }: Props) {
+  return <Element tag={["h", level]} className="headline">{title}</Element>;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected root element");
+  }
+
+  assert.equal(parsed.template.tag.kind, "dynamic");
+  if (parsed.template.tag.kind !== "dynamic") {
+    throw new Error("expected dynamic tag");
+  }
+
+  assert.equal(parsed.template.tag.parts.length, 2);
+  assert.equal(parsed.template.tag.parts[0]?.kind, "string");
+  assert.equal(parsed.template.tag.parts[1]?.kind, "var");
+  assert.equal(parsed.template.attrs?.class?.kind, "text");
+});
+
 test("parseTemplateFile wraps multi-root templates in a fragment", () => {
   const parsed = parseTemplateFile(`
 export default function Example() {
@@ -288,6 +318,29 @@ export default function Example() {
   assert.equal(parsed.template.kind, "element");
   if (parsed.template.kind !== "element") {
     throw new Error("expected root element");
+  }
+
+  assert.equal(parsed.template.targetAttrs?.askama?.["@click"]?.kind, "text");
+  assert.equal(parsed.template.targetAttrs?.react?.["data-preview-role"]?.kind, "text");
+});
+
+test("parseTemplateFile captures target-specific attrs on components", () => {
+  const parsed = parseTemplateFile(`
+import Icon from "./icon.template";
+
+export default function Example() {
+  return (
+    <Icon
+      icon="search"
+      attrs={{ askama: { "@click": "open = false" }, react: { "data-preview-role": "icon" } }}
+    />
+  );
+}
+`);
+
+  assert.equal(parsed.template.kind, "component");
+  if (parsed.template.kind !== "component") {
+    throw new Error("expected root component");
   }
 
   assert.equal(parsed.template.targetAttrs?.askama?.["@click"]?.kind, "text");

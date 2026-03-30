@@ -169,6 +169,32 @@ export default function Example() {
   assert.doesNotMatch(askamaOutput, /data-preview-role/);
 });
 
+test("component target-specific attrs merge into the requested output only", () => {
+  const template = buildTemplate(`
+import Icon from "./icon.template";
+
+export default function Example() {
+  return (
+    <Icon
+      icon="search"
+      attrs={{
+        askama: { className: "icon-askama" },
+        react: { className: "icon-react" }
+      }}
+    />
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const askamaOutput = emitAskamaPartial(template);
+
+  assert.match(reactOutput, /className="icon-react"/);
+  assert.doesNotMatch(reactOutput, /icon-askama/);
+  assert.match(askamaOutput, /{% set class_name = "icon-askama" %}/);
+  assert.doesNotMatch(askamaOutput, /icon-react/);
+});
+
 test("Askama emitter lowers imported components to set/include blocks", () => {
   const template = buildTemplate(`
 import type { TemplateNode } from "@relevate/katachi";
@@ -578,6 +604,23 @@ export default function Example({ label }: Props) {
   assert.doesNotMatch(output, /style="font-variant/);
   assert.match(output, /fontVariantLigatures/);
   assert.match(output, /color: "red"/);
+});
+
+test("React emitter avoids ReactNode imports when no TemplateNode props are present", () => {
+  const template = buildTemplate(`
+export type Props = {
+  label: string;
+};
+
+export default function Example({ label }: Props) {
+  return <div>{label}</div>;
+}
+`);
+
+  const output = emitReactComponent(template);
+
+  assert.doesNotMatch(output, /ReactNode/);
+  assert.doesNotMatch(output, /Fragment/);
 });
 
 test("fragment roots emit cleanly in Askama and React targets", () => {
