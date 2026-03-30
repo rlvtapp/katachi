@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { buildProject } from "../core/build.js";
 import { verifyAskamaFixtures } from "../core/verify.js";
 import { basicExampleRoot, createExampleFixtures, exampleFixtures } from "../core/example-fixtures.js";
+import { outputTargets } from "../targets/index.js";
 
 type Command = "build" | "verify:askama" | "verify:examples" | "help";
 
@@ -12,22 +13,25 @@ interface CliOptions {
   distDir?: string;
   templatesDir?: string;
   targets?: string[];
+  askamaIncludePrefix?: string;
+  minify?: boolean;
 }
 
 function printHelp(): void {
   console.log(`Katachi
 
 Usage:
-  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>] [--target <name>]...
+  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>] [--target <name>]... [--askama-prefix <path>] [--minify]
   katachi verify:examples
   katachi help
 
-Options:
-  --project   Project root directory (default: cwd)
-  --templates Template source directory (default: <project>/src/templates)
-  --dist      Output directory (default: <project>/dist)
-  --target    Emit only the specified target(s). Can be repeated.
-              Available: react, jsx-static, askama, askama-includes, liquid`);
+Defaults:
+  --project   current working directory
+  --templates <project>/src/templates
+  --dist      <project>/dist
+
+Available targets:
+  ${outputTargets.map((target) => target.id).join(", ")}`);
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -69,6 +73,17 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (current === "--askama-prefix" && next) {
+      options.askamaIncludePrefix = next;
+      index += 1;
+      continue;
+    }
+
+    if (current === "--minify") {
+      options.minify = true;
+      continue;
+    }
+
     throw new Error(`Unknown or incomplete option: ${current}`);
   }
 
@@ -89,6 +104,8 @@ function run(): void {
       templatesDir: options.templatesDir,
       distDir: options.distDir,
       targets: options.targets,
+      askamaIncludePrefix: options.askamaIncludePrefix,
+      minify: options.minify,
     });
     return;
   }
@@ -101,6 +118,8 @@ function run(): void {
       projectRoot,
       templatesDir: options.templatesDir,
       distDir,
+      askamaIncludePrefix: options.askamaIncludePrefix,
+      minify: options.minify,
     });
     verifyAskamaFixtures({
       fixtures:

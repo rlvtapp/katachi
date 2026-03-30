@@ -1,17 +1,10 @@
-import type { AttrValue, Expr, Node, TagName } from "../core/ast.js";
+import type { AttrValue, Expr, Node, TagName, TargetAttrs } from "../core/ast.js";
 import type { BuildTemplate } from "../core/types.js";
 
-/**
- * Escapes a string for insertion into Rust string literals used by Askama wrappers.
- */
 function escapeDoubleQuotes(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-/**
- * Chooses a stable quote style for generated HTML attributes so mixed template
- * syntax stays readable and editor highlighting does not break.
- */
 function wrapHtmlAttribute(value: string): string {
   if (!value.includes("'")) {
     return `'${value}'`;
@@ -22,12 +15,6 @@ function wrapHtmlAttribute(value: string): string {
   return `'${value.replace(/'/g, "&#39;")}'`;
 }
 
-/**
- * Best-effort translation of Rust-ish template expressions into TSX-friendly syntax.
- *
- * This exists to support incremental Askama migrations. It is not the ideal
- * final authoring model, but it keeps existing ports workable.
- */
 function translateRustExprToTsx(source: string): string {
   let result = source.trim();
 
@@ -46,16 +33,16 @@ function translateRustExprToTsx(source: string): string {
   return result;
 }
 
-/**
- * Rewrites JS/TS equality operators into Askama-compatible syntax.
- */
 function translateTsxExprToAskama(source: string): string {
-  return source.replace(/\s===\s/g, " == ").replace(/\s!==\s/g, " != ");
+  return source
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*!==\s*null\b/g, "$1.is_some()")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*!=\s*null\b/g, "$1.is_some()")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*===\s*null\b/g, "$1.is_none()")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*==\s*null\b/g, "$1.is_none()")
+    .replace(/\s===\s/g, " == ")
+    .replace(/\s!==\s/g, " != ");
 }
 
-/**
- * Emits a portable expression into TSX/React-family output.
- */
 export function emitTsxExpr(expr: Expr): string {
   switch (expr.kind) {
     case "var":
@@ -97,9 +84,6 @@ export function emitTsxExpr(expr: Expr): string {
   }
 }
 
-/**
- * Emits a portable expression into Askama syntax.
- */
 export function emitAskamaExpr(expr: Expr): string {
   switch (expr.kind) {
     case "var":
@@ -141,10 +125,24 @@ export function emitAskamaExpr(expr: Expr): string {
   }
 }
 
-function emitTagInterpolationPart(
-  expr: Expr,
-  emitExpr: (expr: Expr) => string,
-): string {
+export type TsxAttrEmitter = (name: string, value: AttrValue) => string | null;
+
+interface TsxEmitContext {
+  hoistedTagNames: WeakMap<Extract<Node, { kind: "element" }>, string>;
+}
+
+function mergeTargetScopedAttrs(
+  attrs: Record<string, AttrValue> | undefined,
+  targetAttrs: TargetAttrs | undefined,
+  target: string,
+): Record<string, AttrValue> {
+  return {
+    ...(attrs ?? {}),
+    ...(targetAttrs?.[target] ?? {}),
+  };
+}
+
+function emitTagInterpolationPart(expr: Expr, emitExpr: (expr: Expr) => string): string {
   return expr.kind === "string" ? expr.value : `{{ ${emitExpr(expr)} }}`;
 }
 
@@ -178,10 +176,6 @@ export function emitTsxTagExpr(tag: TagName): string {
   return `\`${segments.join("")}\``;
 }
 
-interface TsxEmitContext {
-  hoistedTagNames: WeakMap<Extract<Node, { kind: "element" }>, string>;
-}
-
 function exprUsesBoundName(expr: Expr, boundNames: Set<string>): boolean {
   switch (expr.kind) {
     case "var":
@@ -200,9 +194,7 @@ function exprUsesBoundName(expr: Expr, boundNames: Set<string>): boolean {
     case "neq":
     case "and":
     case "or":
-      return (
-        exprUsesBoundName(expr.left, boundNames) || exprUsesBoundName(expr.right, boundNames)
-      );
+      return exprUsesBoundName(expr.left, boundNames) || exprUsesBoundName(expr.right, boundNames);
     case "not":
       return exprUsesBoundName(expr.expr, boundNames);
   }
@@ -224,8 +216,20 @@ function collectHoistedDynamicTags(
   nextId: { value: number } = { value: 0 },
 ): void {
   switch (node.kind) {
+    case "fragment":
+      node.children.forEach((child) =>
+        collectHoistedDynamicTags(child, hoists, hoistedTagNames, boundNames, nextId),
+      );
+      return;
+    case "doctype":
+    case "text":
+    case "slot":
+    case "print":
+      return;
     case "if":
-      node.then.forEach((child) => collectHoistedDynamicTags(child, hoists, hoistedTagNames, boundNames, nextId));
+      node.then.forEach((child) =>
+        collectHoistedDynamicTags(child, hoists, hoistedTagNames, boundNames, nextId),
+      );
       (node.else ?? []).forEach((child) =>
         collectHoistedDynamicTags(child, hoists, hoistedTagNames, boundNames, nextId),
       );
@@ -257,8 +261,6 @@ function collectHoistedDynamicTags(
         collectHoistedDynamicTags(child, hoists, hoistedTagNames, boundNames, nextId),
       );
       return;
-    default:
-      return;
   }
 }
 
@@ -274,43 +276,45 @@ function buildTsxEmitContext(template: BuildTemplate): { context: TsxEmitContext
 function emitDynamicTsxElement(
   tagExpr: string,
   tagComponentName: string,
-  attrs: Record<string, AttrValue>,
-  children: Node[],
-  emitAttr: TsxAttrEmitter,
+  attrs: string[],
+  children: string[],
   indent: number,
-  emitNode: (node: Node, emitAttr: TsxAttrEmitter, indent: number, context?: TsxEmitContext) => string,
-  context?: TsxEmitContext,
 ): string {
   const pad = "  ".repeat(indent);
-  const attrEntries = Object.entries(attrs);
-  const attrBlock = attrEntries.length > 0
-    ? `\n${attrEntries
-        .map(([name, value]) => `${pad}      ${emitAttr(name, value)}`)
-        .join("\n")}\n${pad}    `
+  const attrBlock = attrs.length > 0
+    ? `\n${attrs.map((entry) => `${pad}      ${entry}`).join("\n")}\n${pad}    `
     : "";
 
   if (children.length === 0) {
     return `${pad}{(() => {\n${pad}  const ${tagComponentName} = ${tagExpr};\n${pad}  return <${tagComponentName}${attrBlock} />;\n${pad}})()}`;
   }
 
-  const childBlock = children.map((child) => emitNode(child, emitAttr, indent + 3, context)).join("\n");
-  return `${pad}{(() => {\n${pad}  const ${tagComponentName} = ${tagExpr};\n${pad}  return (\n${pad}    <${tagComponentName}${attrBlock}>\n${childBlock}\n${pad}    </${tagComponentName}>\n${pad}  );\n${pad}})()}`;
+  return `${pad}{(() => {\n${pad}  const ${tagComponentName} = ${tagExpr};\n${pad}  return (\n${pad}    <${tagComponentName}${attrBlock}>\n${children.join("\n")}\n${pad}    </${tagComponentName}>\n${pad}  );\n${pad}})()}`;
 }
 
-export type TsxAttrEmitter = (name: string, value: AttrValue) => string;
-
-/**
- * Shared JSX/TSX tree emitter used by both React and static JSX targets.
- */
 export function emitTsxNode(
   node: Node,
   emitAttr: TsxAttrEmitter,
   indent = 0,
+  targetName = "tsx",
   context?: TsxEmitContext,
 ): string {
   const pad = "  ".repeat(indent);
 
   switch (node.kind) {
+    case "fragment": {
+      const children = (node.children ?? []).map((child) =>
+        emitTsxNode(child, emitAttr, indent + 1, targetName, context),
+      );
+
+      if (children.length === 0) {
+        return `${pad}<></>`;
+      }
+
+      return `${pad}<>\n${children.join("\n")}\n${pad}</>`;
+    }
+    case "doctype":
+      return `${pad}{${JSON.stringify(node.value)}}`;
     case "text":
       return `${pad}${node.value}`;
     case "slot":
@@ -319,10 +323,10 @@ export function emitTsxNode(
       return `${pad}{${emitTsxExpr(node.expr)}}`;
     case "if": {
       const thenPart = node.then
-        .map((child) => emitTsxNode(child, emitAttr, indent + 2, context))
+        .map((child) => emitTsxNode(child, emitAttr, indent + 2, targetName, context))
         .join("\n");
       const elsePart = (node.else ?? [])
-        .map((child) => emitTsxNode(child, emitAttr, indent + 2, context))
+        .map((child) => emitTsxNode(child, emitAttr, indent + 2, targetName, context))
         .join("\n");
       if (elsePart) {
         return `${pad}{${emitTsxExpr(node.test)} ? (\n${pad}  <>\n${thenPart}\n${pad}  </>\n${pad}) : (\n${pad}  <>\n${elsePart}\n${pad}  </>\n${pad})}`;
@@ -331,32 +335,36 @@ export function emitTsxNode(
     }
     case "for": {
       const eachExpr = emitTsxExpr(node.each);
-      const iteratorArgs = node.indexName
-        ? `${node.item}, ${node.indexName}`
-        : `${node.item}, __index`;
+      const iteratorArgs = node.indexName ? `${node.item}, ${node.indexName}` : `${node.item}, __index`;
+      const keyName = node.indexName ?? "__index";
       const body = node.children
-        .map((child) => emitTsxNode(child, emitAttr, indent + 2, context))
+        .map((child) => emitTsxNode(child, emitAttr, indent + 2, targetName, context))
         .join("\n");
-      return `${pad}{(${eachExpr} ?? []).map((${iteratorArgs}) => (\n${pad}  <>\n${body}\n${pad}  </>\n${pad}))}`;
+      return `${pad}{(${eachExpr} ?? []).map((${iteratorArgs}) => (\n${pad}  <Fragment key={${keyName}}>\n${body}\n${pad}  </Fragment>\n${pad}))}`;
     }
     case "element": {
+      const attrEntries = Object.entries(
+        mergeTargetScopedAttrs(node.attrs, node.targetAttrs, targetName),
+      )
+        .map(([name, value]) => emitAttr(name, value))
+        .filter((entry): entry is string => entry != null);
+      const children = (node.children ?? []).map((child) =>
+        emitTsxNode(child, emitAttr, indent + 1, targetName, context),
+      );
+
       if (node.tag.kind === "dynamic") {
         const hoistedTagName = context?.hoistedTagNames.get(node);
         if (hoistedTagName) {
-          const attrEntries = Object.entries(node.attrs ?? {});
           const multilineOpen = `${pad}<${hoistedTagName}\n${attrEntries
-            .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+            .map((entry) => `${pad}  ${entry}`)
             .join("\n")}\n${pad}>`;
-          const children = (node.children ?? []).map((child) =>
-            emitTsxNode(child, emitAttr, indent + 1, context),
-          );
 
           if (children.length === 0) {
             if (attrEntries.length === 0) {
               return `${pad}<${hoistedTagName} />`;
             }
             return `${pad}<${hoistedTagName}\n${attrEntries
-              .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+              .map((entry) => `${pad}  ${entry}`)
               .join("\n")}\n${pad}/>`;
           }
 
@@ -367,57 +375,45 @@ export function emitTsxNode(
           return `${multilineOpen}\n${children.join("\n")}\n${pad}</${hoistedTagName}>`;
         }
 
-        return emitDynamicTsxElement(
-          emitTsxTagExpr(node.tag),
-          "KatachiTag",
-          node.attrs ?? {},
-          node.children ?? [],
-          emitAttr,
-          indent,
-          emitTsxNode,
-          context,
-        );
+        return emitDynamicTsxElement(emitTsxTagExpr(node.tag), "KatachiTag", attrEntries, children, indent);
       }
 
-      const attrEntries = Object.entries(node.attrs ?? {});
-      const multilineOpen = `${pad}<${node.tag.name}\n${attrEntries
-        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
+      const tagName = node.tag.name;
+      const multilineOpen = `${pad}<${tagName}\n${attrEntries
+        .map((entry) => `${pad}  ${entry}`)
         .join("\n")}\n${pad}>`;
-      const children = (node.children ?? []).map((child) =>
-        emitTsxNode(child, emitAttr, indent + 1, context),
-      );
 
       if (children.length === 0) {
         if (attrEntries.length === 0) {
-          return `${pad}<${node.tag.name} />`;
+          return `${pad}<${tagName} />`;
         }
-        return `${pad}<${node.tag.name}\n${attrEntries
-          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-          .join("\n")}\n${pad}/>`;
+        return `${pad}<${tagName}\n${attrEntries.map((entry) => `${pad}  ${entry}`).join("\n")}\n${pad}/>`;
       }
 
       if (attrEntries.length === 0) {
-        return `${pad}<${node.tag.name}>\n${children.join("\n")}\n${pad}</${node.tag.name}>`;
+        return `${pad}<${tagName}>\n${children.join("\n")}\n${pad}</${tagName}>`;
       }
 
-      return `${multilineOpen}\n${children.join("\n")}\n${pad}</${node.tag.name}>`;
+      return `${multilineOpen}\n${children.join("\n")}\n${pad}</${tagName}>`;
     }
     case "component": {
-      const propEntries = Object.entries(node.props ?? {});
-      const multilineOpen = `${pad}<${node.name}\n${propEntries
-        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-        .join("\n")}\n${pad}>`;
+      const propEntries = Object.entries(
+        mergeTargetScopedAttrs(node.props, node.targetAttrs, targetName),
+      )
+        .map(([name, value]) => emitAttr(name, value))
+        .filter((entry): entry is string => entry != null);
       const children = (node.children ?? []).map((child) =>
-        emitTsxNode(child, emitAttr, indent + 1, context),
+        emitTsxNode(child, emitAttr, indent + 1, targetName, context),
       );
+      const multilineOpen = `${pad}<${node.name}\n${propEntries
+        .map((entry) => `${pad}  ${entry}`)
+        .join("\n")}\n${pad}>`;
 
       if (children.length === 0) {
         if (propEntries.length === 0) {
           return `${pad}<${node.name} />`;
         }
-        return `${pad}<${node.name}\n${propEntries
-          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-          .join("\n")}\n${pad}/>`;
+        return `${pad}<${node.name}\n${propEntries.map((entry) => `${pad}  ${entry}`).join("\n")}\n${pad}/>`;
       }
 
       if (propEntries.length === 0) {
@@ -429,133 +425,13 @@ export function emitTsxNode(
   }
 }
 
-/**
- * React-specific JSX/TSX tree emitter that uses <Fragment key={...}> in .map() calls.
- */
 export function emitReactNode(
   node: Node,
   emitAttr: TsxAttrEmitter,
   indent = 0,
   context?: TsxEmitContext,
 ): string {
-  const pad = "  ".repeat(indent);
-
-  switch (node.kind) {
-    case "text":
-      return `${pad}${node.value}`;
-    case "slot":
-      return `${pad}{${node.name}}`;
-    case "print":
-      return `${pad}{${emitTsxExpr(node.expr)}}`;
-    case "if": {
-      const thenPart = node.then
-        .map((child) => emitReactNode(child, emitAttr, indent + 2, context))
-        .join("\n");
-      const elsePart = (node.else ?? [])
-        .map((child) => emitReactNode(child, emitAttr, indent + 2, context))
-        .join("\n");
-      if (elsePart) {
-        return `${pad}{${emitTsxExpr(node.test)} ? (\n${pad}  <>\n${thenPart}\n${pad}  </>\n${pad}) : (\n${pad}  <>\n${elsePart}\n${pad}  </>\n${pad})}`;
-      }
-      return `${pad}{${emitTsxExpr(node.test)} && (\n${pad}  <>\n${thenPart}\n${pad}  </>\n${pad})}`;
-    }
-    case "for": {
-      const eachExpr = emitTsxExpr(node.each);
-      const indexVar = node.indexName ?? "__index";
-      const iteratorArgs = `${node.item}, ${indexVar}`;
-      const body = node.children
-        .map((child) => emitReactNode(child, emitAttr, indent + 2, context))
-        .join("\n");
-      return `${pad}{(${eachExpr} ?? []).map((${iteratorArgs}) => (\n${pad}  <Fragment key={${indexVar}}>\n${body}\n${pad}  </Fragment>\n${pad}))}`;
-    }
-    case "element": {
-      if (node.tag.kind === "dynamic") {
-        const hoistedTagName = context?.hoistedTagNames.get(node);
-        if (hoistedTagName) {
-          const attrEntries = Object.entries(node.attrs ?? {});
-          const multilineOpen = `${pad}<${hoistedTagName}\n${attrEntries
-            .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-            .join("\n")}\n${pad}>`;
-          const children = (node.children ?? []).map((child) =>
-            emitReactNode(child, emitAttr, indent + 1, context),
-          );
-
-          if (children.length === 0) {
-            if (attrEntries.length === 0) {
-              return `${pad}<${hoistedTagName} />`;
-            }
-            return `${pad}<${hoistedTagName}\n${attrEntries
-              .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-              .join("\n")}\n${pad}/>`;
-          }
-
-          if (attrEntries.length === 0) {
-            return `${pad}<${hoistedTagName}>\n${children.join("\n")}\n${pad}</${hoistedTagName}>`;
-          }
-
-          return `${multilineOpen}\n${children.join("\n")}\n${pad}</${hoistedTagName}>`;
-        }
-
-        return emitDynamicTsxElement(
-          emitTsxTagExpr(node.tag),
-          "KatachiTag",
-          node.attrs ?? {},
-          node.children ?? [],
-          emitAttr,
-          indent,
-          emitReactNode,
-          context,
-        );
-      }
-
-      const attrEntries = Object.entries(node.attrs ?? {});
-      const multilineOpen = `${pad}<${node.tag.name}\n${attrEntries
-        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-        .join("\n")}\n${pad}>`;
-      const children = (node.children ?? []).map((child) =>
-        emitReactNode(child, emitAttr, indent + 1, context),
-      );
-
-      if (children.length === 0) {
-        if (attrEntries.length === 0) {
-          return `${pad}<${node.tag.name} />`;
-        }
-        return `${pad}<${node.tag.name}\n${attrEntries
-          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-          .join("\n")}\n${pad}/>`;
-      }
-
-      if (attrEntries.length === 0) {
-        return `${pad}<${node.tag.name}>\n${children.join("\n")}\n${pad}</${node.tag.name}>`;
-      }
-
-      return `${multilineOpen}\n${children.join("\n")}\n${pad}</${node.tag.name}>`;
-    }
-    case "component": {
-      const propEntries = Object.entries(node.props ?? {});
-      const multilineOpen = `${pad}<${node.name}\n${propEntries
-        .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-        .join("\n")}\n${pad}>`;
-      const children = (node.children ?? []).map((child) =>
-        emitReactNode(child, emitAttr, indent + 1, context),
-      );
-
-      if (children.length === 0) {
-        if (propEntries.length === 0) {
-          return `${pad}<${node.name} />`;
-        }
-        return `${pad}<${node.name}\n${propEntries
-          .map(([name, value]) => `${pad}  ${emitAttr(name, value)}`)
-          .join("\n")}\n${pad}/>`;
-      }
-
-      if (propEntries.length === 0) {
-        return `${pad}<${node.name}>\n${children.join("\n")}\n${pad}</${node.name}>`;
-      }
-
-      return `${multilineOpen}\n${children.join("\n")}\n${pad}</${node.name}>`;
-    }
-  }
+  return emitTsxNode(node, emitAttr, indent, "react", context);
 }
 
 function toPascalCase(value: string): string {
@@ -571,6 +447,16 @@ export function toCamelCase(value: string): string {
   return pascal.length === 0 ? pascal : pascal[0].toLowerCase() + pascal.slice(1);
 }
 
+export function toSnakeCase(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[-\s]+/g, "_")
+    .replace(/[^a-zA-Z0-9_]/g, "_")
+    .replace(/__+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
 export function toRustType(type: string): string {
   switch (type) {
     case "string":
@@ -580,14 +466,15 @@ export function toRustType(type: string): string {
     case "number":
       return "i64";
     case "children":
+    case "template-node":
       return "&'a str";
     case "children[]":
+    case "string[]":
+    case "template-node[]":
       return "&'a [&'a str]";
     case "children[][]":
-      return "&'a [&'a [&'a str]]";
-    case "string[]":
-      return "&'a [&'a str]";
     case "string[][]":
+    case "template-node[][]":
       return "&'a [&'a [&'a str]]";
     default:
       return "&'a str";
@@ -603,19 +490,19 @@ export function toTsType(type: string): string {
     case "number":
       return "number";
     case "children":
+    case "template-node":
       return "ReactNode";
     case "children[]":
+    case "template-node[]":
       return "ReactNode[]";
     case "children[][]":
+    case "template-node[][]":
       return "ReactNode[][]";
     default:
       return type;
   }
 }
 
-/**
- * Builds import lines for nested template components in TSX-family targets.
- */
 export function buildTsxImportLines(template: BuildTemplate): string {
   return (template.imports ?? [])
     .map((entry) =>
@@ -627,30 +514,46 @@ export function buildTsxImportLines(template: BuildTemplate): string {
     .join("\n");
 }
 
-/**
- * Checks whether the AST contains any "for" nodes, which means
- * the React target needs to import Fragment.
- */
 function astUsesForNode(node: Node): boolean {
   switch (node.kind) {
+    case "fragment":
+      return node.children.some(astUsesForNode);
+    case "doctype":
+    case "text":
+    case "slot":
+    case "print":
+      return false;
     case "for":
       return true;
     case "if":
-      return (
-        node.then.some(astUsesForNode) || (node.else ?? []).some(astUsesForNode)
-      );
+      return node.then.some(astUsesForNode) || (node.else ?? []).some(astUsesForNode);
     case "element":
       return (node.children ?? []).some(astUsesForNode);
     case "component":
       return (node.children ?? []).some(astUsesForNode);
-    default:
-      return false;
   }
 }
 
-/**
- * Wraps an emitted TSX template body in a component module.
- */
+function astUsesDynamicElement(node: Node): boolean {
+  switch (node.kind) {
+    case "fragment":
+      return node.children.some(astUsesDynamicElement);
+    case "doctype":
+    case "text":
+    case "slot":
+    case "print":
+      return false;
+    case "if":
+      return node.then.some(astUsesDynamicElement) || (node.else ?? []).some(astUsesDynamicElement);
+    case "for":
+      return node.children.some(astUsesDynamicElement);
+    case "element":
+      return node.tag.kind === "dynamic" || (node.children ?? []).some(astUsesDynamicElement);
+    case "component":
+      return (node.children ?? []).some(astUsesDynamicElement);
+  }
+}
+
 export function buildTsxComponentSource(
   template: BuildTemplate,
   body: string,
@@ -663,9 +566,9 @@ export function buildTsxComponentSource(
   );
   const destructuredProps = props.map((prop) => prop.name).join(", ");
   const componentImports = buildTsxImportLines(template);
-  const needsElementType = hoists.length > 0;
+  const needsElementType = astUsesDynamicElement(template.template) || hoists.length > 0;
 
-  return `import type { ${needsElementType ? "ElementType, " : ""}ReactNode } from "react";
+  return `import { Fragment, ${needsElementType ? "type ElementType, " : ""}type ReactNode } from "react";
 ${componentImports ? `${componentImports}\n` : ""}
 
 export type ${propsTypeName} = {
@@ -680,10 +583,6 @@ ${body}
 `;
 }
 
-/**
- * Wraps an emitted React TSX template body in a component module.
- * Only imports ReactNode when a prop uses it, and imports Fragment when needed.
- */
 export function buildReactComponentSource(
   template: BuildTemplate,
   body: string,
@@ -698,10 +597,16 @@ export function buildReactComponentSource(
   const componentImports = buildTsxImportLines(template);
 
   const needsReactNode = props.some(
-    (prop) => prop.type === "children" || prop.type === "children[]" || prop.type === "children[][]",
+    (prop) =>
+      prop.type === "children" ||
+      prop.type === "children[]" ||
+      prop.type === "children[][]" ||
+      prop.type === "template-node" ||
+      prop.type === "template-node[]" ||
+      prop.type === "template-node[][]",
   );
   const needsFragment = astUsesForNode(template.template);
-  const needsElementType = hoists.length > 0;
+  const needsElementType = astUsesDynamicElement(template.template) || hoists.length > 0;
 
   const reactImports: string[] = [];
   if (needsFragment) {

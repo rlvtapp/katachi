@@ -21,7 +21,7 @@ A template file should export:
 Example:
 
 ```tsx
-import { Element, For, If, isEmpty, len, type TemplateNode } from "@relevate/katachi";
+import { For, If, isEmpty, len, type TemplateNode } from "@relevate/katachi";
 
 export type Props = {
   title: string;
@@ -32,7 +32,7 @@ export type Props = {
 export default function Example({ title, rows, children }: Props) {
   return (
     <section>
-      <Element tag={["h", 2]}>{title}</Element>
+      <h2>{title}</h2>
       <For each={rows} as="row">
         <div>{row[0]}</div>
       </For>
@@ -63,22 +63,6 @@ Normal lowercase JSX tags work as expected:
 <img src={src} alt={alt} />
 ```
 
-### Dynamic intrinsic elements
-
-Use `Element` when the tag name itself needs to vary.
-
-```tsx
-import { Element } from "@relevate/katachi";
-
-<Element tag={["h", level]} className="headline">
-  {title}
-</Element>
-```
-
-`tag` accepts either a plain expression like `tag={tagName}` or a structured
-tuple like `tag={["h", level]}` when you want a fixed prefix with one dynamic
-part.
-
 ### Imported template components
 
 Capitalized tags are treated as template component invocations.
@@ -88,6 +72,28 @@ import Icon from "./icon.template";
 
 <Icon icon="search" size="16" />
 ```
+
+### Same-file local helper components
+
+You can also define capitalized helper components in the same file.
+Katachi expands them at compile time.
+
+```tsx
+function Styling({ tone, children }: { tone: string; children?: TemplateNode }) {
+  return (
+    <div className={["wrapper", tone == "warn" && "warn"]}>
+      {children}
+    </div>
+  );
+}
+
+export default function Example() {
+  return <Styling tone="warn">Alert</Styling>;
+}
+```
+
+These helpers are useful for readability, but they still need to stay inside the
+Katachi subset. They are not runtime React components.
 
 ### Children and slots
 
@@ -103,6 +109,24 @@ type Props = {
 <div>{children}</div>
 ```
 
+### `TemplateNode`
+
+Use `TemplateNode` for props that contain template content rather than plain
+text.
+
+```tsx
+import { type TemplateNode } from "@relevate/katachi";
+
+type Props = {
+  title_html: TemplateNode;
+};
+
+<h2>{title_html}</h2>
+```
+
+Katachi treats `TemplateNode` values and `children` as safe template content in
+Askama output automatically. There is no separate `safe(...)` helper.
+
 ### `If`
 
 Use `If` for conditional rendering.
@@ -112,6 +136,17 @@ import { If } from "@relevate/katachi";
 
 <If test={variant == "warning"}>
   <p>Warning</p>
+</If>
+```
+
+Optional `Else` blocks are supported:
+
+```tsx
+<If test={variant == "warning"}>
+  <p>Warning</p>
+  <Else>
+    <p>All good</p>
+  </Else>
 </If>
 ```
 
@@ -135,26 +170,18 @@ Optional index binding:
 </For>
 ```
 
-### `TemplateNode`
+### Top-level doctypes
 
-Use `TemplateNode` for props or children that carry markup-like content.
+Top-level HTML declarations such as `<!DOCTYPE html>` are supported.
 
 ```tsx
-import type { TemplateNode } from "@relevate/katachi";
-
-type Props = {
-  title_html: TemplateNode;
-  children?: TemplateNode;
-};
-
-<h2>{title_html}</h2>
-<div>{children}</div>
+export default function Layout() {
+  return (
+    <!DOCTYPE html>
+    <html></html>
+  );
+}
 ```
-
-For Askama output, `TemplateNode` values are treated as markup content and are
-emitted with `|safe`. On Liquid output, they are emitted as plain Liquid
-output, so trusted or sanitized HTML should be handled before it reaches the
-target.
 
 ### Portable helpers
 
@@ -191,6 +218,23 @@ Both `class` and `className` are supported in authoring input.
 ```
 
 This is Katachi syntax hosted in TSX. The compiler normalizes it and emits target-specific output.
+
+### Target-specific attrs
+
+Use `attrs` when a specific target needs extra attributes.
+
+```tsx
+<div
+  className="shell"
+  attrs={{
+    askama: { "@click": "open = false" },
+    liquid: { "@click": "open = false" },
+    react: { "data-preview-role": "shell" },
+  }}
+/>
+```
+
+Shared attrs still apply to every target. Target-specific attrs are merged on top.
 
 ## Expressions
 
@@ -229,7 +273,6 @@ portable helpers in new Katachi templates:
 - `ClassValue`
 - `TemplateNode`
 - `If`
-- `Element`
 - `For`
 - `len`
 - `isEmpty`
@@ -259,5 +302,6 @@ React modules.
 - keep component bodies declarative
 - prefer `If` and `For` instead of ad hoc expression trees
 - use imported Katachi templates for nested components
+- use same-file helper components when they improve readability
 - prefer `className` in authoring files for editor familiarity
 - keep prop types simple and serializable where possible

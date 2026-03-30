@@ -31,19 +31,11 @@ outputs in a real project.
 - file type: `.html`
 - purpose: Askama partial output
 
-### `liquid`
-
-- output folder: `dist/liquid/snippets`
-- file type: `.liquid`
-- purpose: Shopify Liquid snippet output
-
 ## Which output should you use?
 
 - Use `dist/react` if your consumer is a React app or an editor surface built in React.
 - Use `dist/jsx-static` if you want a TSX artifact that reads a bit more statically.
 - Use `dist/askama` and `dist/askama/includes` if your consumer is Rust + Askama.
-- Use `dist/liquid/snippets` if your consumer is a Shopify theme or another
-  Liquid environment.
 
 ## Relative imports and includes
 
@@ -53,14 +45,6 @@ That means:
 
 - a nested React component import stays relative in `dist/react`
 - a nested Askama include stays relative in `dist/askama/includes`
-- a nested Shopify Liquid component becomes a `{% render %}` call using the
-  snippet path in `dist/liquid/snippets`
-
-## Liquid-specific notes
-
-- The Liquid target emits Shopify-compatible snippet files.
-- `TemplateNode` values lower to plain Liquid output on this target, so trusted
-  or sanitized HTML should be handled before the Liquid layer.
 
 ## Internal note
 

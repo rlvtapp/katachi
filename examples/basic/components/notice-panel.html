@@ -1,23 +1,33 @@
 <aside
-  class="rounded-3xl border px-5 py-4 backdrop-blur-sm {% if tone == "calm" %}border-sky-200 bg-sky-50/80{% endif %} {% if tone == "urgent" %}border-rose-200 bg-rose-50/80{% endif %} {% if tone == "success" %}border-emerald-200 bg-emerald-50/80{% endif %}"
+  class='rounded-3xl border px-5 py-4 backdrop-blur-sm {% if tone == "calm" %}border-sky-200 bg-sky-50/80{% endif %} {% if tone == "urgent" %}border-rose-200 bg-rose-50/80{% endif %} {% if tone == "success" %}border-emerald-200 bg-emerald-50/80{% endif %}'
 >
-  <div class="flex items-start gap-3">
-    {% let className = "mt-0.5 h-5 w-5 shrink-0" %}
-    {% let tone = tone %}
-    {% let size = "18" %}
-    {% let name = icon %}
+  <div
+    class='flex items-start gap-3'
+  >
+    {% set class_name = "mt-0.5 h-5 w-5 shrink-0" %}
+    {% set tone = tone %}
+    {% set size = "18" %}
+    {% set name = icon %}
     {% include "./includes/glyph.html" %}
-    <div class="min-w-0 flex-1">
-      <h{{ headingLevel }} class="text-sm font-semibold tracking-tight">
+    <div
+      class='min-w-0 flex-1'
+    >
+      <h3
+        class='text-sm font-semibold tracking-tight'
+      >
         {{ title }}
-      </h{{ headingLevel }}>
-      <div class="mt-2 text-sm leading-6 text-slate-700">
+      </h3>
+      <div
+        class='mt-2 text-sm leading-6 text-slate-700'
+      >
         {{ children|safe }}
       </div>
     </div>
   </div>
   {% if tone == "urgent" %}
-    <p class="mt-3 text-xs font-medium uppercase tracking-[0.24em] text-rose-700">
+    <p
+      class='mt-3 text-xs font-medium uppercase tracking-[0.24em] text-rose-700'
+    >
       Action recommended
     </p>
   {% endif %}

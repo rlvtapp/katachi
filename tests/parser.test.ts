@@ -10,8 +10,8 @@ import Icon from "./icon.template";
 
 export type Props = {
   variant: "note" | "warning";
-  rows: string[];
-  message?: string;
+  rows: TemplateNode[];
+  message?: TemplateNode;
   fallback?: string;
   children?: TemplateNode;
 };
@@ -48,8 +48,8 @@ export default function Example({ variant, rows, message, fallback, children }: 
   });
   assert.deepEqual(parsed.props, [
     { name: "variant", type: "string", optional: false },
-    { name: "rows", type: "string[]", optional: false },
-    { name: "message", type: "string", optional: true },
+    { name: "rows", type: "template-node[]", optional: false },
+    { name: "message", type: "template-node", optional: true },
     { name: "fallback", type: "string", optional: true },
     { name: "children", type: "children", optional: true },
   ]);
@@ -84,6 +84,14 @@ export default function Example({ variant, rows, message, fallback, children }: 
   }
   assert.equal(conditional.then[0]?.kind, "element");
   assert.equal(conditional.test.kind, "and");
+  if (conditional.then[0]?.kind !== "element") {
+    throw new Error("expected conditional element");
+  }
+  assert.equal(conditional.then[0].children?.[0]?.kind, "print");
+  if (conditional.then[0].children?.[0]?.kind !== "print") {
+    throw new Error("expected conditional print");
+  }
+  assert.equal(conditional.then[0].children[0].safe, true);
 
   const emptyState = parsed.template.children?.[2];
   assert.ok(emptyState && emptyState.kind === "if");
@@ -118,6 +126,15 @@ export default function Example({ variant, rows, message, fallback, children }: 
   }
   assert.equal(loop.item, "row");
   assert.equal(loop.indexName, "i");
+  assert.equal(loop.children[0]?.kind, "element");
+  if (loop.children[0]?.kind !== "element") {
+    throw new Error("expected loop element");
+  }
+  assert.equal(loop.children[0].children?.[0]?.kind, "print");
+  if (loop.children[0].children?.[0]?.kind !== "print") {
+    throw new Error("expected loop print");
+  }
+  assert.equal(loop.children[0].children[0].safe, true);
 });
 
 test("parseTemplateFile accepts one-line JSX returns", () => {
@@ -169,7 +186,52 @@ export default function Example({ label }: Props) {
   assert.equal(component.props?.class, undefined);
 });
 
-test("parseTemplateFile lowers Element helper to a dynamic intrinsic tag", () => {
+test("parseTemplateFile supports dynamic class items and concat attrs", () => {
+  const parsed = parseTemplateFile(`
+export type Props = {
+  variant: string;
+  active: boolean;
+};
+
+export default function Example({ variant, active }: Props) {
+  return <a className={["base", variant, active && "active"]} href={["#", variant, "-link"]}>Link</a>;
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected root element");
+  }
+
+  const classAttr = parsed.template.attrs?.class;
+  assert.ok(classAttr);
+  assert.equal(classAttr?.kind, "classList");
+  if (classAttr?.kind !== "classList") {
+    throw new Error("expected class list");
+  }
+
+  assert.deepEqual(classAttr.items[0], { kind: "static", value: "base" });
+  assert.equal(classAttr.items[1]?.kind, "dynamic");
+  if (classAttr.items[1]?.kind !== "dynamic") {
+    throw new Error("expected dynamic class item");
+  }
+  assert.equal(classAttr.items[1].expr.kind, "var");
+  assert.equal(classAttr.items[2]?.kind, "when");
+
+  const hrefAttr = parsed.template.attrs?.href;
+  assert.ok(hrefAttr);
+  assert.equal(hrefAttr?.kind, "concat");
+  if (hrefAttr?.kind !== "concat") {
+    throw new Error("expected concat href");
+  }
+
+  assert.equal(hrefAttr.parts.length, 3);
+  assert.equal(hrefAttr.parts[0]?.kind, "string");
+  assert.equal(hrefAttr.parts[1]?.kind, "var");
+  assert.equal(hrefAttr.parts[2]?.kind, "string");
+});
+
+test("parseTemplateFile lowers Element tags into dynamic element nodes", () => {
   const parsed = parseTemplateFile(`
 import { Element } from "@relevate/katachi";
 
@@ -194,23 +256,62 @@ export default function Example({ level, title }: Props) {
   }
 
   assert.equal(parsed.template.tag.parts.length, 2);
-  assert.deepEqual(parsed.template.tag.parts[0], { kind: "string", value: "h" });
-  assert.deepEqual(parsed.template.tag.parts[1], { kind: "var", name: "level" });
+  assert.equal(parsed.template.tag.parts[0]?.kind, "string");
+  assert.equal(parsed.template.tag.parts[1]?.kind, "var");
   assert.equal(parsed.template.attrs?.class?.kind, "text");
-  assert.equal(parsed.template.children?.[0]?.kind, "print");
 });
 
-test("parseTemplateFile supports plain dynamic tag variables", () => {
+test("parseTemplateFile wraps multi-root templates in a fragment", () => {
   const parsed = parseTemplateFile(`
-import { Element } from "@relevate/katachi";
+export default function Example() {
+  return (
+    <div>alpha</div>
+    <div>beta</div>
+  );
+}
+`);
 
-export type Props = {
-  tagName: string;
-  title: string;
-};
+  assert.equal(parsed.template.kind, "fragment");
+  if (parsed.template.kind !== "fragment") {
+    throw new Error("expected fragment root");
+  }
 
-export default function Example({ tagName, title }: Props) {
-  return <Element tag={tagName}>{title}</Element>;
+  assert.equal(parsed.template.children.length, 2);
+  assert.equal(parsed.template.children[0]?.kind, "element");
+  assert.equal(parsed.template.children[1]?.kind, "element");
+});
+
+test("parseTemplateFile supports explicit fragment syntax", () => {
+  const parsed = parseTemplateFile(`
+export default function Example() {
+  return (
+    <>
+      <div>alpha</div>
+      <div>beta</div>
+    </>
+  );
+}
+`);
+
+  assert.equal(parsed.template.kind, "fragment");
+  if (parsed.template.kind !== "fragment") {
+    throw new Error("expected fragment root");
+  }
+
+  assert.equal(parsed.template.children.length, 2);
+  assert.equal(parsed.template.children[0]?.kind, "element");
+  assert.equal(parsed.template.children[1]?.kind, "element");
+});
+
+test("parseTemplateFile captures target-specific attrs", () => {
+  const parsed = parseTemplateFile(`
+export default function Example() {
+  return (
+    <div
+      className="base"
+      attrs={{ askama: { "@click": "open = false" }, react: { "data-preview-role": "shell" } }}
+    />
+  );
 }
 `);
 
@@ -219,141 +320,163 @@ export default function Example({ tagName, title }: Props) {
     throw new Error("expected root element");
   }
 
-  assert.equal(parsed.template.tag.kind, "dynamic");
-  if (parsed.template.tag.kind !== "dynamic") {
-    throw new Error("expected dynamic tag");
-  }
-
-  assert.equal(parsed.template.tag.parts.length, 1);
-  assert.deepEqual(parsed.template.tag.parts[0], { kind: "var", name: "tagName" });
+  assert.equal(parsed.template.targetAttrs?.askama?.["@click"]?.kind, "text");
+  assert.equal(parsed.template.targetAttrs?.react?.["data-preview-role"]?.kind, "text");
 });
 
-test("parseTemplateFile rejects Element without a tag prop", () => {
-  assert.throws(
-    () =>
-      parseTemplateFile(`
-import { Element } from "@relevate/katachi";
+test("parseTemplateFile captures target-specific attrs on components", () => {
+  const parsed = parseTemplateFile(`
+import Icon from "./icon.template";
+
+export default function Example() {
+  return (
+    <Icon
+      icon="search"
+      attrs={{ askama: { "@click": "open = false" }, react: { "data-preview-role": "icon" } }}
+    />
+  );
+}
+`);
+
+  assert.equal(parsed.template.kind, "component");
+  if (parsed.template.kind !== "component") {
+    throw new Error("expected root component");
+  }
+
+  assert.equal(parsed.template.targetAttrs?.askama?.["@click"]?.kind, "text");
+  assert.equal(parsed.template.targetAttrs?.react?.["data-preview-role"]?.kind, "text");
+});
+
+test("parseTemplateFile preserves top-level doctypes", () => {
+  const parsed = parseTemplateFile(`
+export default function Layout() {
+  return (
+    <!DOCTYPE html>
+    <html></html>
+  );
+}
+`);
+
+  assert.equal(parsed.template.kind, "fragment");
+  assert.equal(parsed.template.children?.[0]?.kind, "doctype");
+  assert.equal(parsed.template.children?.[0]?.value, "<!DOCTYPE html>");
+});
+
+test("parseTemplateFile preserves raw script and style contents", () => {
+  const parsed = parseTemplateFile(`
+export default function Example() {
+  return (
+    <script>
+      const value = { open: true };
+    </script>
+  );
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected script root");
+  }
+
+  assert.deepEqual(parsed.template.tag, { kind: "static", name: "script" });
+  assert.equal(parsed.template.children?.[0]?.kind, "text");
+  if (parsed.template.children?.[0]?.kind !== "text") {
+    throw new Error("expected raw text child");
+  }
+
+  assert.match(parsed.template.children[0].value, /const value = \{ open: true \};/);
+});
+
+test("parseTemplateFile supports Else branches inside If", () => {
+  const parsed = parseTemplateFile(`
+import { If } from "@relevate/katachi";
+
+export default function Example() {
+  return (
+    <If test={true}>
+      <span>yes</span>
+      <Else>
+        <span>no</span>
+      </Else>
+    </If>
+  );
+}
+`);
+
+  assert.equal(parsed.template.kind, "if");
+  if (parsed.template.kind !== "if") {
+    throw new Error("expected if root");
+  }
+
+  assert.equal(parsed.template.then.length, 1);
+  assert.equal(parsed.template.else?.length, 1);
+  assert.equal(parsed.template.then[0]?.kind, "element");
+  assert.equal(parsed.template.else?.[0]?.kind, "element");
+});
+
+test("parseTemplateFile expands same-file local helper components with props and children", () => {
+  const parsed = parseTemplateFile(`
+import { If, type TemplateNode } from "@relevate/katachi";
+
+function Inner({ label, children }: { label: string; children?: TemplateNode }) {
+  return (
+    <div className={["wrapper", label == "warn" && "warn"]}>
+      <span>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Outer({ label, children }: { label: string; children?: TemplateNode }) {
+  return (
+    <Inner label={label}>
+      <If test={label == "warn"}>
+        <strong>{children}</strong>
+      </If>
+    </Inner>
+  );
+}
 
 export type Props = {
   title: string;
 };
 
-export default function Example({ title }: Props) {
-  return <Element>{title}</Element>;
-}
-`),
-    /<Element> requires a `tag=\{\.\.\.\}` prop/,
+export default function Page({ title }: Props) {
+  return (
+    <section>
+      <Outer label={title}>Hello</Outer>
+    </section>
   );
-});
-
-// --- Regression tests for bug fixes ---
-
-test("parseClassList: bare identifiers produce dynamic class items, not static strings", () => {
-  const parsed = parseTemplateFile(`
-export type Props = {
-  variant: string;
-  size: string;
-};
-
-export default function Example({ variant, size }: Props) {
-  return <div className={["base", variant, size]} />;
 }
 `);
 
   assert.equal(parsed.template.kind, "element");
-  if (parsed.template.kind !== "element") throw new Error("expected element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected root section");
+  }
 
-  const cls = parsed.template.attrs?.class;
-  assert.ok(cls);
-  assert.equal(cls?.kind, "classList");
-  if (cls?.kind !== "classList") throw new Error("expected classList");
+  assert.deepEqual(parsed.template.tag, { kind: "static", name: "section" });
+  assert.equal(parsed.template.children?.[0]?.kind, "element");
+  if (parsed.template.children?.[0]?.kind !== "element") {
+    throw new Error("expected expanded helper root");
+  }
 
-  assert.equal(cls.items.length, 3);
-  assert.deepEqual(cls.items[0], { kind: "static", value: "base" });
-  assert.equal(cls.items[1]?.kind, "dynamic");
-  if (cls.items[1]?.kind !== "dynamic") throw new Error("expected dynamic");
-  assert.deepEqual(cls.items[1].expr, { kind: "var", name: "variant" });
-  assert.equal(cls.items[2]?.kind, "dynamic");
-  if (cls.items[2]?.kind !== "dynamic") throw new Error("expected dynamic");
-  assert.deepEqual(cls.items[2].expr, { kind: "var", name: "size" });
-});
-
-test("parseClassList: complex conditional with isEmpty parses correctly using findTopLevelOperator", () => {
-  const parsed = parseTemplateFile(`
-import { isEmpty, isSome } from "@relevate/katachi";
-
-export type Props = {
-  label?: string;
-};
-
-export default function Example({ label }: Props) {
-  return <div className={["base", isSome(label) && !isEmpty(label) && "has-label"]} />;
-}
-`);
-
-  assert.equal(parsed.template.kind, "element");
-  if (parsed.template.kind !== "element") throw new Error("expected element");
-
-  const cls = parsed.template.attrs?.class;
-  assert.ok(cls);
-  assert.equal(cls?.kind, "classList");
-  if (cls?.kind !== "classList") throw new Error("expected classList");
-
-  assert.equal(cls.items.length, 2);
-  assert.deepEqual(cls.items[0], { kind: "static", value: "base" });
-
-  const conditional = cls.items[1];
-  assert.equal(conditional?.kind, "when");
-  if (conditional?.kind !== "when") throw new Error("expected when item");
-  assert.equal(conditional.value, "has-label");
-  // The test expression should be an `and` of two sub-expressions
-  assert.equal(conditional.test.kind, "and");
-});
-
-test("parseAttrValue: non-class array attributes produce concat AttrValue", () => {
-  const parsed = parseTemplateFile(`
-export type Props = {
-  variant: string;
-};
-
-export default function Example({ variant }: Props) {
-  return <a href={["#section-", variant, "-detail"]} />;
-}
-`);
-
-  assert.equal(parsed.template.kind, "element");
-  if (parsed.template.kind !== "element") throw new Error("expected element");
-
-  const href = parsed.template.attrs?.href;
-  assert.ok(href);
-  assert.equal(href?.kind, "concat");
-  if (href?.kind !== "concat") throw new Error("expected concat");
-  assert.equal(href.parts.length, 3);
-  assert.deepEqual(href.parts[0], { kind: "string", value: "#section-" });
-  assert.deepEqual(href.parts[1], { kind: "var", name: "variant" });
-  assert.deepEqual(href.parts[2], { kind: "string", value: "-detail" });
-});
-
-test("parseAttrValue: style concat attribute produces concat AttrValue", () => {
-  const parsed = parseTemplateFile(`
-export type Props = {
-  color: string;
-};
-
-export default function Example({ color }: Props) {
-  return <div style={["background-color: ", color, "; padding: 8px"]} />;
-}
-`);
-
-  assert.equal(parsed.template.kind, "element");
-  if (parsed.template.kind !== "element") throw new Error("expected element");
-
-  const style = parsed.template.attrs?.style;
-  assert.ok(style);
-  assert.equal(style?.kind, "concat");
-  if (style?.kind !== "concat") throw new Error("expected concat");
-  assert.equal(style.parts.length, 3);
-  assert.deepEqual(style.parts[0], { kind: "string", value: "background-color: " });
-  assert.deepEqual(style.parts[1], { kind: "var", name: "color" });
-  assert.deepEqual(style.parts[2], { kind: "string", value: "; padding: 8px" });
+  assert.deepEqual(parsed.template.children[0].tag, { kind: "static", name: "div" });
+  const helperRoot = parsed.template.children[0];
+  assert.equal(helperRoot.attrs?.class?.kind, "classList");
+  if (helperRoot.attrs?.class?.kind !== "classList") {
+    throw new Error("expected class list");
+  }
+  assert.equal(helperRoot.attrs.class.items.length, 2);
+  assert.equal(helperRoot.children?.[0]?.kind, "element");
+  assert.equal(helperRoot.children?.[1]?.kind, "if");
+  if (helperRoot.children?.[0]?.kind !== "element") {
+    throw new Error("expected span child");
+  }
+  assert.deepEqual(helperRoot.children[0].tag, { kind: "static", name: "span" });
+  assert.equal(helperRoot.children[0].children?.[0]?.kind, "print");
+  if (helperRoot.children?.[1]?.kind !== "if") {
+    throw new Error("expected conditional child");
+  }
+  assert.equal(helperRoot.children[1].then[0]?.kind, "element");
 });

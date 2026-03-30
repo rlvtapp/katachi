@@ -84,6 +84,22 @@ export default function NoticePanel({ tone, title, children }: Props) {
 }
 ```
 
+If a prop contains template content instead of plain text, type it as
+`TemplateNode` and render it directly. Katachi will preserve it as safe content
+for Askama automatically.
+
+```tsx
+import { type TemplateNode } from "@relevate/katachi";
+
+export type CardProps = {
+  title_html: TemplateNode;
+};
+
+export default function Card({ title_html }: CardProps) {
+  return <h2>{title_html}</h2>;
+}
+```
+
 ## 4. Build outputs
 
 From your project root:
@@ -110,6 +126,18 @@ You can also point Katachi at custom paths:
 pnpm exec katachi build --templates ./katachi/templates --dist ./generated
 ```
 
+If you want compact Askama include and Liquid output, add:
+
+```bash
+pnpm exec katachi build --minify
+```
+
+If you only want a subset of targets, repeat `--target`:
+
+```bash
+pnpm exec katachi build --target react --target liquid
+```
+
 ## 5. Consume the generated files
 
 By default, Katachi writes:
@@ -118,13 +146,11 @@ By default, Katachi writes:
 - `dist/jsx-static/**/*.tsx`
 - `dist/askama/**/*.rs`
 - `dist/askama/includes/**/*.html`
-- `dist/liquid/snippets/**/*.liquid`
 
 Typical usage:
 
 - use `dist/react` in your editor or React app
 - use `dist/askama` and `dist/askama/includes` in your Rust/Askama app
-- use `dist/liquid/snippets` in Shopify themes or other Liquid consumers
 
 If you are evaluating Katachi for a shared component library, this is the
 normal model: author once, then consume the generated output from each target

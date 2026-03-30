@@ -23,7 +23,7 @@ export interface TemplateProp {
 export interface ComponentRegistration {
   reactImport: string;
   include: string;
-  liquidSnippet?: string;
+  liquidSnippet: string;
 }
 
 export type ComponentRegistry = Record<string, ComponentRegistration>;
@@ -46,6 +46,12 @@ export interface BuildTemplate extends ParsedTemplate {
   sourcePath: string;
   relativePath: string;
   componentRegistry: ComponentRegistry;
+  askamaTemplatePrefix?: string;
+}
+
+export interface AskamaBuildPaths {
+  includePrefix?: string;
+  templatePrefix?: string;
 }
 
 /**
@@ -56,6 +62,14 @@ export interface TargetOutputFile {
   content: string;
 }
 
+export interface TargetEmitOptions {
+  minify?: boolean;
+}
+
+export interface BuildTargetSelection {
+  targets?: string[];
+}
+
 /**
  * Contract implemented by a concrete output format.
  */
@@ -63,7 +77,7 @@ export interface OutputTarget {
   id: string;
   outputSubdir: string;
   extension: string;
-  emitFiles(template: BuildTemplate): TargetOutputFile[];
+  emitFiles(template: BuildTemplate, options?: TargetEmitOptions): TargetOutputFile[];
 }
 
 /**

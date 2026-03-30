@@ -2,22 +2,46 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { BuildTemplate, ComponentRegistry } from "./types.js";
+import type {
+  AskamaBuildPaths,
+  BuildTargetSelection,
+  BuildTemplate,
+  ComponentRegistry,
+} from "./types.js";
 import { parseTemplateFile } from "./parser.js";
 import { outputTargets } from "../targets/index.js";
+import type { TargetEmitOptions } from "./types.js";
 
 export interface BuildProjectOptions {
   projectRoot?: string;
   distDir?: string;
   templatesDir?: string;
-  /** Emit only the specified target IDs. When omitted, all targets are emitted. */
   targets?: string[];
+  askamaIncludePrefix?: string;
+  minify?: boolean;
   logger?: Pick<Console, "log">;
 }
 
 export interface BuildProjectResult {
   templates: BuildTemplate[];
   writtenFiles: string[];
+}
+
+function selectOutputTargets(options: BuildTargetSelection = {}) {
+  const allTargetIds = outputTargets.map((target) => target.id);
+
+  if (!options.targets || options.targets.length === 0) {
+    return outputTargets;
+  }
+
+  const unknownTargets = options.targets.filter((target) => !allTargetIds.includes(target));
+  if (unknownTargets.length > 0) {
+    throw new Error(
+      `Unknown target(s): ${unknownTargets.join(", ")}. Available: ${allTargetIds.join(", ")}`,
+    );
+  }
+
+  return outputTargets.filter((target) => options.targets?.includes(target.id));
 }
 
 /**
@@ -53,13 +77,22 @@ function toRelativeModulePath(fromRelativePath: string, toRelativePathWithoutExt
   return relativePath;
 }
 
-function toRelativeIncludePath(fromRelativePath: string, importedRelativePath: string): string {
-  const fromDir = dirname(fromRelativePath);
+function toAskamaIncludePath(
+  fromRelativePath: string,
+  importedRelativePath: string,
+  askamaPaths: AskamaBuildPaths = {},
+): string {
   const includeTarget = join(
     "includes",
     dirname(importedRelativePath),
     `${basename(importedRelativePath).replace(/\.template\.tsx$/, "")}.html`,
   );
+
+  if (askamaPaths.includePrefix) {
+    return join(askamaPaths.includePrefix, dirname(importedRelativePath), `${basename(importedRelativePath).replace(/\.template\.tsx$/, "")}.html`).replaceAll("\\", "/");
+  }
+
+  const fromDir = dirname(fromRelativePath);
   const relativePath = relative(fromDir, includeTarget).replaceAll("\\", "/");
 
   if (!relativePath || !relativePath.startsWith(".")) {
@@ -76,21 +109,16 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
   const projectRoot = options.projectRoot ?? process.cwd();
   const distDir = options.distDir ?? resolve(projectRoot, "dist");
   const templatesDir = options.templatesDir ?? resolve(projectRoot, "src/templates");
+  const askamaPaths: AskamaBuildPaths = {
+    includePrefix: options.askamaIncludePrefix,
+    templatePrefix: options.askamaIncludePrefix,
+  };
+  const emitOptions: TargetEmitOptions = {
+    minify: options.minify,
+  };
+  const activeTargets = selectOutputTargets(options);
   const logger = options.logger ?? console;
   const writtenFiles: string[] = [];
-
-  const allTargetIds = outputTargets.map((t) => t.id);
-  let activeTargets = outputTargets;
-
-  if (options.targets && options.targets.length > 0) {
-    const unknown = options.targets.filter((t) => !allTargetIds.includes(t));
-    if (unknown.length > 0) {
-      throw new Error(
-        `Unknown target(s): ${unknown.join(", ")}. Available: ${allTargetIds.join(", ")}`,
-      );
-    }
-    activeTargets = outputTargets.filter((t) => options.targets!.includes(t.id));
-  }
 
   mkdirSync(distDir, { recursive: true });
 
@@ -105,6 +133,7 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
       sourcePath: filePath,
       relativePath,
       fileName,
+      askamaTemplatePrefix: askamaPaths.templatePrefix,
       componentRegistry: {},
     };
   });
@@ -138,10 +167,8 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
           template.relativePath,
           importedTemplate.relativePath.replace(/\.template\.tsx$/, ""),
         ),
-        include: toRelativeIncludePath(template.relativePath, importedTemplate.relativePath),
-        liquidSnippet: importedTemplate.relativePath
-          .replace(/\.template\.tsx$/, "")
-          .replaceAll("\\", "/"),
+        include: toAskamaIncludePath(template.relativePath, importedTemplate.relativePath, askamaPaths),
+        liquidSnippet: importedTemplate.relativePath.replace(/\.template\.tsx$/, "").replaceAll("\\", "/"),
       };
     }
 
@@ -149,7 +176,7 @@ export function buildProject(options: BuildProjectOptions = {}): BuildProjectRes
     const templateDir = dirname(template.relativePath);
 
     for (const target of activeTargets) {
-      for (const output of target.emitFiles(template)) {
+      for (const output of target.emitFiles(template, emitOptions)) {
         const outputPath = join(distDir, target.outputSubdir, templateDir, output.fileName);
         mkdirSync(dirname(outputPath), { recursive: true });
         writeFileSync(outputPath, output.content, "utf8");

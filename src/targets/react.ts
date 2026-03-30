@@ -2,14 +2,11 @@ import type { AttrValue, Expr, Node } from "../core/ast.js";
 import type { BuildTemplate } from "../core/types.js";
 import {
   buildReactComponentSource,
+  emitReactNode,
   emitTsxExpr,
   emitTsxWithHoists,
-  emitReactNode,
 } from "./shared.js";
 
-/**
- * HTML attribute name → React JSX equivalent.
- */
 const HTML_TO_REACT_ATTR: Record<string, string> = {
   class: "className",
   for: "htmlFor",
@@ -51,9 +48,6 @@ const HTML_TO_REACT_ATTR: Record<string, string> = {
   viewbox: "viewBox",
 };
 
-/**
- * Boolean HTML attributes that should emit boolean values instead of strings in React.
- */
 const BOOLEAN_ATTRS = new Set([
   "contentEditable",
   "autoFocus",
@@ -71,44 +65,30 @@ const BOOLEAN_ATTRS = new Set([
   "draggable",
 ]);
 
-/**
- * Converts a CSS property name to its camelCase React equivalent.
- */
 function cssPropToCamelCase(prop: string): string {
-  // Handle vendor prefixes like -webkit-, -moz-, etc.
   const cleaned = prop.startsWith("-") ? prop.slice(1) : prop;
   return cleaned.replace(/-([a-z])/g, (_match, char: string) => char.toUpperCase());
 }
 
-/**
- * Parses a static CSS string into a React CSSProperties-style object literal.
- * e.g., "font-variant-ligatures: none; color: red" → { fontVariantLigatures: "none", color: "red" }
- */
 function cssStringToReactStyle(css: string): string {
   const declarations = css
     .split(";")
     .map((d) => d.trim())
     .filter(Boolean);
 
-  const props = declarations.map((decl) => {
-    const colonIdx = decl.indexOf(":");
-    if (colonIdx === -1) return null;
-    const prop = decl.slice(0, colonIdx).trim();
-    const value = decl.slice(colonIdx + 1).trim();
-    const reactProp = cssPropToCamelCase(prop);
-    // Numeric values without units should be numbers, but CSS values are generally strings
-    return `${reactProp}: ${JSON.stringify(value)}`;
-  }).filter(Boolean);
+  const props = declarations
+    .map((decl) => {
+      const colonIdx = decl.indexOf(":");
+      if (colonIdx === -1) return null;
+      const prop = decl.slice(0, colonIdx).trim();
+      const value = decl.slice(colonIdx + 1).trim();
+      return `${cssPropToCamelCase(prop)}: ${JSON.stringify(value)}`;
+    })
+    .filter(Boolean);
 
-  return `{{ ${props.join(", ")} }}`;
+  return `{ ${props.join(", ")} }`;
 }
 
-/**
- * Emits an expression for use inside a string context (template literal).
- * `and` expressions are converted to ternaries so that `false` doesn't
- * render as the literal string "false".
- * e.g., `!isEmpty(color) && color` → `!isEmpty(color) ? color : ""`
- */
 function emitStringConcatExpr(expr: Expr): string {
   if (expr.kind === "and") {
     return `(${emitTsxExpr(expr.left)} ? ${emitTsxExpr(expr.right)} : "")`;
@@ -116,33 +96,7 @@ function emitStringConcatExpr(expr: Expr): string {
   return emitTsxExpr(expr);
 }
 
-/**
- * Emits a concat AttrValue as a React-compatible expression.
- * For style attributes, converts to CSSProperties object.
- * For other attributes, emits as template literal.
- */
-function emitConcatValue(parts: Expr[], attrName: string): string {
-  if (attrName === "style") {
-    return emitConcatStyle(parts);
-  }
-
-  // Build a template literal from the parts
-  const segments = parts.map((part) => {
-    if (part.kind === "string") {
-      return part.value;
-    }
-    return `\${${emitStringConcatExpr(part)}}`;
-  });
-  return `{\`${segments.join("")}\`}`;
-}
-
-/**
- * Converts a concat-style style attribute into a React CSSProperties object.
- * e.g., ["background-color: ", color] → {{ backgroundColor: color }}
- */
 function emitConcatStyle(parts: Expr[]): string {
-  // Reconstruct the CSS template from the parts and parse it
-  // Strategy: join string parts and expression placeholders, then parse declarations
   const declarations: { prop: string; valueParts: Expr[] }[] = [];
   let currentProp = "";
   let currentValueParts: Expr[] = [];
@@ -150,8 +104,7 @@ function emitConcatStyle(parts: Expr[]): string {
 
   for (const part of parts) {
     if (part.kind === "string") {
-      const text = part.value;
-      let remaining = text;
+      let remaining = part.value;
 
       while (remaining.length > 0) {
         if (parsingProp) {
@@ -170,12 +123,11 @@ function emitConcatStyle(parts: Expr[]): string {
             }
           }
         } else {
-          // Parsing value
           const semiIdx = remaining.indexOf(";");
           if (semiIdx !== -1) {
-            const valueBefore = remaining.slice(0, semiIdx).trim();
-            if (valueBefore) {
-              currentValueParts.push({ kind: "string", value: valueBefore });
+            const beforeSemi = remaining.slice(0, semiIdx).trim();
+            if (beforeSemi) {
+              currentValueParts.push({ kind: "string", value: beforeSemi });
             }
             declarations.push({ prop: currentProp.trim(), valueParts: currentValueParts });
             currentProp = "";
@@ -190,61 +142,66 @@ function emitConcatStyle(parts: Expr[]): string {
           }
         }
       }
+    } else if (parsingProp) {
+      currentProp += "__expr__";
+      currentValueParts.push(part);
     } else {
-      // Expression part
-      if (parsingProp) {
-        // Unusual: expression in property name position. Treat as dynamic.
-        currentProp += `__expr__`;
-        currentValueParts.push(part);
-      } else {
-        currentValueParts.push(part);
-      }
+      currentValueParts.push(part);
     }
   }
 
-  // Flush remaining declaration
   if (currentProp.trim() && currentValueParts.length > 0) {
     declarations.push({ prop: currentProp.trim(), valueParts: currentValueParts });
   }
 
   const props = declarations.map(({ prop, valueParts }) => {
     const reactProp = cssPropToCamelCase(prop);
-    if (valueParts.length === 1 && valueParts[0].kind === "string") {
+    if (valueParts.length === 1 && valueParts[0]?.kind === "string") {
       return `${reactProp}: ${JSON.stringify(valueParts[0].value)}`;
     }
-    if (valueParts.length === 1) {
+    if (valueParts.length === 1 && valueParts[0]) {
       return `${reactProp}: ${emitStringConcatExpr(valueParts[0])}`;
     }
-    // Multiple parts: use template literal
-    const segments = valueParts.map((p) =>
-      p.kind === "string" ? p.value : `\${${emitStringConcatExpr(p)}}`,
+    const segments = valueParts.map((valuePart) =>
+      valuePart.kind === "string" ? valuePart.value : `\${${emitStringConcatExpr(valuePart)}}`,
     );
     return `${reactProp}: \`${segments.join("")}\``;
   });
 
-  return `{{ ${props.join(", ")} }}`;
+  return `{ ${props.join(", ")} }`;
 }
 
-/**
- * Maps an HTML attribute name to its React JSX equivalent.
- */
+function emitConcatValue(parts: Expr[], attrName: string): string {
+  if (attrName === "style") {
+    return emitConcatStyle(parts);
+  }
+
+  const segments = parts.map((part) => {
+    if (part.kind === "string") {
+      return part.value;
+    }
+    return `\${${emitStringConcatExpr(part)}}`;
+  });
+
+  return `\`${segments.join("")}\``;
+}
+
 function toReactAttrName(name: string): string {
   return HTML_TO_REACT_ATTR[name] ?? name;
 }
 
-/**
- * Emits attributes for React-compatible TSX output.
- */
-function emitReactAttr(name: string, value: AttrValue): string {
+function emitReactAttr(name: string, value: AttrValue): string | null {
+  if (name.includes("@") || name.includes(":")) {
+    return null;
+  }
+
   const attrName = toReactAttrName(name);
 
   switch (value.kind) {
-    case "text": {
-      // Handle style attribute: convert CSS string to CSSProperties object
+    case "text":
       if (attrName === "style") {
         return `${attrName}=${cssStringToReactStyle(value.value)}`;
       }
-      // Handle boolean attributes: emit boolean value instead of string
       if (BOOLEAN_ATTRS.has(attrName)) {
         if (value.value === "true" || value.value === "") {
           return `${attrName}={true}`;
@@ -254,7 +211,6 @@ function emitReactAttr(name: string, value: AttrValue): string {
         }
       }
       return `${attrName}=${JSON.stringify(value.value)}`;
-    }
     case "expr":
       return `${attrName}={${emitTsxExpr(value.expr)}}`;
     case "classList": {
@@ -271,15 +227,36 @@ function emitReactAttr(name: string, value: AttrValue): string {
       return `${attrName}={[${items.join(", ")}].filter(Boolean).join(" ")}`;
     }
     case "concat":
-      return `${attrName}=${emitConcatValue(value.parts, attrName)}`;
+      return `${attrName}={${emitConcatValue(value.parts, attrName)}}`;
   }
 }
 
-export function emitReact(node: Node, indent = 0): string {
-  return emitReactNode(node, emitReactAttr, indent);
+export function emitReact(
+  node: Node,
+  indent = 0,
+  context?: Parameters<typeof emitReactNode>[3],
+): string {
+  if (indent === 2 && node.kind === "element" && node.tag.kind === "static" && node.tag.name === "body") {
+    const pad = "  ".repeat(indent);
+    const children = (node.children ?? []).map((child) =>
+      emitReactNode(child, emitReactAttr, indent + 1, context),
+    );
+
+    if (children.length === 0) {
+      return `${pad}<></>`;
+    }
+
+    return `${pad}<>\n${children.join("\n")}\n${pad}</>`;
+  }
+
+  return emitReactNode(node, emitReactAttr, indent, context);
 }
 
 export function emitReactComponent(template: BuildTemplate): string {
-  const { body, hoists } = emitTsxWithHoists(template, emitReactNode, emitReactAttr);
+  const { body, hoists } = emitTsxWithHoists(
+    template,
+    (node, _emitAttr, indent, context) => emitReact(node, indent, context),
+    emitReactAttr,
+  );
   return buildReactComponentSource(template, body, hoists);
 }

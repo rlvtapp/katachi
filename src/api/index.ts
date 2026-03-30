@@ -26,19 +26,6 @@ export type IfProps = {
   children?: TemplateNode;
 };
 
-export type ElementTagPart = string | number | boolean | null | undefined;
-
-export type ElementTag =
-  | string
-  | readonly [string, ElementTagPart]
-  | readonly [string, ElementTagPart, string];
-
-export type ElementProps = {
-  tag: ElementTag;
-  children?: TemplateNode;
-  [attrName: string]: unknown;
-};
-
 export type ForProps<T = unknown> = {
   each: readonly T[] | T[] | null | undefined;
   as: string;
@@ -51,13 +38,6 @@ export type ForProps<T = unknown> = {
  * templates directly and never evaluates this function during normal use.
  */
 export function If(_props: IfProps): TemplateNode {
-  return null;
-}
-
-/**
- * Placeholder runtime export for dynamic intrinsic tags in template files.
- */
-export function Element(_props: ElementProps): TemplateNode {
   return null;
 }
 

@@ -1,496 +1,390 @@
 import type { AttrValue, Expr, Node } from "../core/ast.js";
-import type { BuildTemplate } from "../core/types.js";
-import { emitInterpolatedTagName, wrapHtmlAttribute } from "./shared.js";
+import type { BuildTemplate, TargetEmitOptions } from "../core/types.js";
+import {
+  isBooleanHtmlAttribute,
+  isVoidHtmlElement,
+  normalizeHtmlAttributeName,
+} from "./html.js";
+import { emitInterpolatedTagName, escapeDoubleQuotes, wrapHtmlAttribute } from "./shared.js";
 
-interface LiquidContext {
-  tempId: number;
+type LiquidScope = {
+  bindings: Record<string, string>;
+  safeSlots: Set<string>;
+};
+
+function createEmptyLiquidScope(): LiquidScope {
+  return {
+    bindings: {},
+    safeSlots: new Set(),
+  };
 }
 
-interface LiquidValueResult {
-  prelude: string[];
-  source: string;
+function createLiquidRootScope(template: BuildTemplate): LiquidScope {
+  return {
+    bindings: Object.fromEntries((template.props ?? []).map((prop) => [prop.name, prop.name])),
+    safeSlots: new Set(
+      (template.props ?? [])
+        .filter((prop) => prop.type.includes("template-node") || prop.type === "children")
+        .map((prop) => prop.name),
+    ),
+  };
 }
 
-function nextTempName(context: LiquidContext, prefix: string): string {
-  context.tempId += 1;
-  return `__katachi_${prefix}_${context.tempId}`;
-}
+function translateTemplateLiteralToLiquid(source: string): string {
+  const match = source.match(/^`([\s\S]*)`(?:\.replace\((.+)\))?$/);
+  if (!match) {
+    return source;
+  }
 
-function pad(indent: number): string {
-  return "  ".repeat(indent);
-}
+  const [, templateBody, replaceArgs] = match;
+  const segments = templateBody.split(/(\$\{[^}]+\})/g).filter(Boolean);
+  const pieces = segments.map((segment) => {
+    if (segment.startsWith("${") && segment.endsWith("}")) {
+      return { kind: "expr" as const, value: segment.slice(2, -1).trim() };
+    }
 
-function escapeLiquidString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
+    return { kind: "text" as const, value: segment };
+  });
 
-function translateTsxExprToLiquid(source: string): string {
-  let result = source.trim();
+  const [first, ...rest] = pieces;
+  let result = first?.kind === "text"
+    ? JSON.stringify(first.value)
+    : first
+      ? `"" | append: ${first.value}`
+      : `""`;
 
-  result = result.replace(/([A-Za-z0-9_().]+)\.clone\(\)\.unwrap\(\)/g, "$1");
-  result = result.replace(/([A-Za-z0-9_().]+)\.unwrap\(\)/g, "$1");
-  result = result.replace(/([A-Za-z0-9_().]+)\.is_some\(\)/g, "$1 != nil");
-  result = result.replace(/([A-Za-z0-9_().]+)\.is_none\(\)/g, "$1 == nil");
-  result = result.replace(/!\s*([A-Za-z0-9_().]+)\.is_empty\(\)/g, "$1 != blank");
-  result = result.replace(/([A-Za-z0-9_().]+)\.is_empty\(\)/g, "$1 == blank");
-  result = result.replace(/([A-Za-z0-9_().]+)\.len\(\)/g, "$1.size");
-  result = result.replace(/\s===\s/g, " == ");
-  result = result.replace(/\s!==\s/g, " != ");
-  result = result.replace(/\s==\s/g, " == ");
-  result = result.replace(/\s!=\s/g, " != ");
-  result = result.replace(/\s&&\s/g, " and ");
-  result = result.replace(/\s\|\|\s/g, " or ");
+  for (const piece of rest) {
+    if (piece.kind === "text") {
+      if (piece.value.length === 0) {
+        continue;
+      }
+      result = `${result} | append: ${JSON.stringify(piece.value)}`;
+      continue;
+    }
+
+    result = `${result} | append: ${piece.value}`;
+  }
+
+  if (replaceArgs) {
+    const args = replaceArgs.split(",").map((part) => part.trim()).filter(Boolean);
+    if (args.length >= 2) {
+      result = `${result} | replace: ${args[0]}, ${args[1]}`;
+    }
+  }
 
   return result;
 }
 
-function emitLiquidScalarExpr(expr: Expr): string | null {
+function translateNullishCoalescingToLiquid(source: string): string {
+  return source.replace(
+    /\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*\?\?\s*(".*?"|'.*?'|\[\])/g,
+    (_match, left: string, right: string) => {
+      const fallback = right === "[]" ? "empty" : right;
+      return `${left} | default: ${fallback}`;
+    },
+  );
+}
+
+function escapeLiquidLiteral(value: string): string {
+  if (value.includes("{%") || value.includes("{{")) {
+    return `{% raw %}${value}{% endraw %}`;
+  }
+
+  return value;
+}
+
+function wrapLiquidOutput(expr: string, safe = false): string {
+  return safe ? `{{ ${expr} }}` : `{{ ${expr} | escape }}`;
+}
+
+function emitLiquidExpr(expr: Expr): string {
   switch (expr.kind) {
     case "var":
       return expr.name;
     case "string":
-      return `"${escapeLiquidString(expr.value)}"`;
+      return `"${escapeDoubleQuotes(expr.value)}"`;
     case "bool":
       return expr.value ? "true" : "false";
     case "number":
       return String(expr.value);
     case "intrinsic": {
       const [arg] = expr.args;
-      const emittedArg = arg ? emitLiquidScalarExpr(arg) : null;
-      if (!emittedArg) {
-        return null;
-      }
-      if (expr.name === "len") {
-        return `${emittedArg}.size`;
-      }
-      return null;
-    }
-    case "raw":
-      return translateTsxExprToLiquid(expr.source);
-    default:
-      return null;
-  }
-}
-
-function emitLiquidTagExpr(expr: Expr): string {
-  const scalar = emitLiquidScalarExpr(expr);
-  if (scalar) {
-    return scalar;
-  }
-  if (expr.kind === "raw") {
-    return translateTsxExprToLiquid(expr.source);
-  }
-  return "";
-}
-
-function emitSimpleLiquidCondition(expr: Expr): string | null {
-  switch (expr.kind) {
-    case "var":
-      return expr.name;
-    case "bool":
-      return expr.value ? "true" : "false";
-    case "raw":
-      return translateTsxExprToLiquid(expr.source);
-    case "eq":
-    case "neq": {
-      const left = emitLiquidScalarExpr(expr.left);
-      const right = emitLiquidScalarExpr(expr.right);
-      if (!left || !right) {
-        return null;
-      }
-      return `${left} ${expr.kind === "eq" ? "==" : "!="} ${right}`;
-    }
-    case "intrinsic": {
-      const [arg] = expr.args;
-      const emittedArg = arg ? emitLiquidScalarExpr(arg) : null;
-      if (!emittedArg) {
-        return null;
-      }
+      const emittedArg = arg ? emitLiquidExpr(arg) : "";
       switch (expr.name) {
+        case "len":
+          return `${emittedArg}.size`;
         case "isEmpty":
-          return `${emittedArg} == blank`;
+          return `${emittedArg} == empty`;
         case "isSome":
           return `${emittedArg} != nil`;
         case "isNone":
           return `${emittedArg} == nil`;
-        default:
-          return null;
       }
     }
-    default:
-      return null;
+    case "raw":
+      return translateNullishCoalescingToLiquid(
+        translateTemplateLiteralToLiquid(
+          expr.source
+            .replace(/\?\./g, ".")
+            .replace(/([A-Za-z0-9_.)\]]+)\.clone\(\)\.unwrap\(\)/g, "$1")
+            .replace(/([A-Za-z0-9_.)\]]+)\.unwrap\(\)/g, "$1")
+            .replace(/([A-Za-z0-9_.)\]]+)\.is_some\(\)/g, "$1 != nil")
+            .replace(/([A-Za-z0-9_.)\]]+)\.is_none\(\)/g, "$1 == nil")
+            .replace(/!\s*([A-Za-z0-9_.)\]]+)\.is_empty\(\)/g, "$1 != empty")
+            .replace(/([A-Za-z0-9_.)\]]+)\.is_empty\(\)/g, "$1 == empty")
+            .replace(/([A-Za-z0-9_.)\]]+)\.len\(\)/g, "$1.size"),
+        ),
+      )
+        .replace(/\bnull\b/g, "nil")
+        .replace(/\s===\s/g, " == ")
+        .replace(/\s!==\s/g, " != ")
+        .replace(/\s==\s/g, " == ")
+        .replace(/\s!=\s/g, " != ")
+        .replace(/\s&&\s/g, " and ")
+        .replace(/\s\|\|\s/g, " or ");
+    case "eq":
+      return `${emitLiquidExpr(expr.left)} == ${emitLiquidExpr(expr.right)}`;
+    case "neq":
+      return `${emitLiquidExpr(expr.left)} != ${emitLiquidExpr(expr.right)}`;
+    case "and":
+      return `${emitLiquidExpr(expr.left)} and ${emitLiquidExpr(expr.right)}`;
+    case "or":
+      return `${emitLiquidExpr(expr.left)} or ${emitLiquidExpr(expr.right)}`;
+    case "not":
+      return `not ${emitLiquidExpr(expr.expr)}`;
   }
 }
 
-function materializeLiquidBooleanExpr(
-  expr: Expr,
-  context: LiquidContext,
-  indent: number,
-): LiquidValueResult {
-  const simple = emitSimpleLiquidCondition(expr);
-  if (simple) {
-    return {
-      prelude: [],
-      source: simple,
-    };
-  }
+function emitScopedLiquidExpr(expr: Expr, scope: LiquidScope): string {
+  const base = emitLiquidExpr(expr);
 
-  switch (expr.kind) {
-    case "and": {
-      const left = materializeLiquidBooleanExpr(expr.left, context, indent);
-      const right = materializeLiquidBooleanExpr(expr.right, context, indent);
-      const ref = nextTempName(context, "cond");
-      return {
-        prelude: [
-          ...left.prelude,
-          ...right.prelude,
-          `${pad(indent)}{% assign ${ref} = false %}`,
-          `${pad(indent)}{% if ${left.source} %}`,
-          `${pad(indent + 1)}{% if ${right.source} %}`,
-          `${pad(indent + 2)}{% assign ${ref} = true %}`,
-          `${pad(indent + 1)}{% endif %}`,
-          `${pad(indent)}{% endif %}`,
-        ],
-        source: ref,
-      };
-    }
-    case "or": {
-      const left = materializeLiquidBooleanExpr(expr.left, context, indent);
-      const right = materializeLiquidBooleanExpr(expr.right, context, indent);
-      const ref = nextTempName(context, "cond");
-      return {
-        prelude: [
-          ...left.prelude,
-          ...right.prelude,
-          `${pad(indent)}{% assign ${ref} = false %}`,
-          `${pad(indent)}{% if ${left.source} %}`,
-          `${pad(indent + 1)}{% assign ${ref} = true %}`,
-          `${pad(indent)}{% elsif ${right.source} %}`,
-          `${pad(indent + 1)}{% assign ${ref} = true %}`,
-          `${pad(indent)}{% endif %}`,
-        ],
-        source: ref,
-      };
-    }
-    case "not": {
-      const inner = materializeLiquidBooleanExpr(expr.expr, context, indent);
-      const ref = nextTempName(context, "cond");
-      return {
-        prelude: [
-          ...inner.prelude,
-          `${pad(indent)}{% assign ${ref} = false %}`,
-          `${pad(indent)}{% unless ${inner.source} %}`,
-          `${pad(indent + 1)}{% assign ${ref} = true %}`,
-          `${pad(indent)}{% endunless %}`,
-        ],
-        source: ref,
-      };
-    }
-    default: {
-      const ref = nextTempName(context, "cond");
-      return {
-        prelude: [
-          `${pad(indent)}{% assign ${ref} = false %}`,
-        ],
-        source: ref,
-      };
-    }
-  }
+  return Object.entries(scope.bindings).reduce((current, [name, replacement]) => {
+    const pattern = new RegExp(`\\b${name}\\b`, "g");
+    return current.replace(pattern, replacement);
+  }, base);
 }
 
-function materializeLiquidBooleanValue(
-  expr: Expr,
-  context: LiquidContext,
-  indent: number,
-): LiquidValueResult {
-  const condition = materializeLiquidBooleanExpr(expr, context, indent);
-  const ref = nextTempName(context, "bool");
+function emitLiquidAttr(name: string, value: AttrValue, scope: LiquidScope): string {
+  const normalizedName = normalizeHtmlAttributeName(name);
+  const booleanAttribute = isBooleanHtmlAttribute(normalizedName);
 
-  return {
-    prelude: [
-      ...condition.prelude,
-      `${pad(indent)}{% assign ${ref} = false %}`,
-      `${pad(indent)}{% if ${condition.source} %}`,
-      `${pad(indent + 1)}{% assign ${ref} = true %}`,
-      `${pad(indent)}{% endif %}`,
-    ],
-    source: ref,
-  };
-}
-
-function emitLiquidInterpolatedValue(
-  expr: Expr,
-  context: LiquidContext,
-  indent: number,
-): LiquidValueResult {
-  const scalar = emitLiquidScalarExpr(expr);
-  if (scalar) {
-    return {
-      prelude: [],
-      source: `{{ ${scalar} }}`,
-    };
-  }
-
-  const booleanExpr = materializeLiquidBooleanValue(expr, context, indent);
-  return {
-    prelude: booleanExpr.prelude,
-    source: `{{ ${booleanExpr.source} }}`,
-  };
-}
-
-function emitLiquidComponentPropValue(
-  value: AttrValue,
-  context: LiquidContext,
-  indent: number,
-): LiquidValueResult {
   switch (value.kind) {
     case "text":
-      return {
-        prelude: [],
-        source: `"${escapeLiquidString(value.value)}"`,
-      };
-    case "expr": {
-      const scalar = emitLiquidScalarExpr(value.expr);
-      if (scalar) {
-        return {
-          prelude: [],
-          source: scalar,
-        };
+      if (booleanAttribute) {
+        return value.value === "false" ? "" : normalizedName;
       }
-
-      return materializeLiquidBooleanValue(value.expr, context, indent);
-    }
-    case "classList": {
-      const classVar = nextTempName(context, "class");
-      const captureLines = emitLiquidClassCapture(value, classVar, context, indent);
-      return {
-        prelude: captureLines,
-        source: classVar,
-      };
-    }
-    case "concat": {
-      const concatVar = nextTempName(context, "concat");
-      const fragments = value.parts.map((part) => {
-        if (part.kind === "string") {
-          return part.value;
-        }
-        const scalar = emitLiquidScalarExpr(part);
-        if (scalar) {
-          return `{{ ${scalar} }}`;
-        }
-        return "";
-      });
-      return {
-        prelude: [
-          `${pad(indent)}{% capture ${concatVar} %}${fragments.join("")}{% endcapture %}`,
-        ],
-        source: concatVar,
-      };
-    }
-  }
-}
-
-function emitLiquidClassCapture(
-  value: Extract<AttrValue, { kind: "classList" }>,
-  variableName: string,
-  context: LiquidContext,
-  indent: number,
-): string[] {
-  const prelude: string[] = [];
-  const fragments: string[] = [];
-
-  for (const item of value.items) {
-    if (item.kind === "static") {
-      fragments.push(item.value);
-      continue;
-    }
-    if (item.kind === "dynamic") {
-      const scalar = emitLiquidScalarExpr(item.expr);
-      if (scalar) {
-        fragments.push(`{{ ${scalar} }}`);
+      return `${normalizedName}=${wrapHtmlAttribute(escapeLiquidLiteral(value.value))}`;
+    case "expr":
+      if (booleanAttribute) {
+        return `{% if ${emitScopedLiquidExpr(value.expr, scope)} %}${normalizedName}{% endif %}`;
       }
-      continue;
-    }
-
-    const condition = materializeLiquidBooleanExpr(item.test, context, indent);
-    prelude.push(...condition.prelude);
-    fragments.push(`{% if ${condition.source} %}${item.value}{% endif %}`);
-  }
-
-  return [
-    ...prelude,
-    `${pad(indent)}{% capture ${variableName} %}${fragments.join(" ").trim()}{% endcapture %}`,
-  ];
-}
-
-function emitLiquidAttr(
-  name: string,
-  value: AttrValue,
-  context: LiquidContext,
-  indent: number,
-): LiquidValueResult {
-  switch (value.kind) {
-    case "text":
-      return {
-        prelude: [],
-        source: `${name}=${wrapHtmlAttribute(value.value)}`,
-      };
-    case "expr": {
-      const rendered = emitLiquidInterpolatedValue(value.expr, context, indent);
-      return {
-        prelude: rendered.prelude,
-        source: `${name}=${wrapHtmlAttribute(rendered.source)}`,
-      };
-    }
+      return `${normalizedName}=${wrapHtmlAttribute(
+        wrapLiquidOutput(emitScopedLiquidExpr(value.expr, scope)),
+      )}`;
     case "classList": {
-      const prelude: string[] = [];
       const parts: string[] = [];
-
       for (const item of value.items) {
         if (item.kind === "static") {
           parts.push(item.value);
           continue;
         }
         if (item.kind === "dynamic") {
-          const scalar = emitLiquidScalarExpr(item.expr);
-          if (scalar) {
-            parts.push(`{{ ${scalar} }}`);
-          }
+          parts.push(`{{ ${emitScopedLiquidExpr(item.expr, scope)} }}`);
           continue;
         }
 
-        const condition = materializeLiquidBooleanExpr(item.test, context, indent);
-        prelude.push(...condition.prelude);
-        parts.push(`{% if ${condition.source} %}${item.value}{% endif %}`);
+        parts.push(`{% if ${emitScopedLiquidExpr(item.test, scope)} %}${item.value}{% endif %}`);
       }
-
-      return {
-        prelude,
-        source: `${name}=${wrapHtmlAttribute(parts.join(" ").trim())}`,
-      };
+      return `${normalizedName}=${wrapHtmlAttribute(parts.join(" ").trim())}`;
     }
     case "concat": {
-      const fragments = value.parts.map((part) => {
+      const parts = value.parts.map((part) => {
         if (part.kind === "string") {
           return part.value;
         }
-        const scalar = emitLiquidScalarExpr(part);
-        if (scalar) {
-          return `{{ ${scalar} }}`;
-        }
-        return "";
+        return `{{ ${emitScopedLiquidExpr(part, scope)} }}`;
       });
+      return `${normalizedName}=${wrapHtmlAttribute(parts.join(""))}`;
+    }
+  }
+}
+
+function emitLiquidRenderArgValue(propName: string, value: AttrValue, scope: LiquidScope): {
+  setup: string[];
+  arg: string;
+} {
+  switch (value.kind) {
+    case "text":
+      return { setup: [], arg: `${propName}: "${escapeDoubleQuotes(value.value)}"` };
+    case "expr":
+      return { setup: [], arg: `${propName}: ${emitScopedLiquidExpr(value.expr, scope)}` };
+    case "classList": {
+      const variableName = `__${propName}`;
+      const parts: string[] = [];
+      for (const item of value.items) {
+        if (item.kind === "static") {
+          parts.push(item.value);
+          continue;
+        }
+        if (item.kind === "dynamic") {
+          parts.push(`{{ ${emitScopedLiquidExpr(item.expr, scope)} }}`);
+          continue;
+        }
+
+        parts.push(`{% if ${emitScopedLiquidExpr(item.test, scope)} %}${item.value}{% endif %}`);
+      }
+
       return {
-        prelude: [],
-        source: `${name}=${wrapHtmlAttribute(fragments.join(""))}`,
+        setup: [`{% capture ${variableName} %}${parts.join(" ").trim()}{% endcapture %}`],
+        arg: `${propName}: ${variableName}`,
+      };
+    }
+    case "concat": {
+      const variableName = `__${propName}`;
+      const parts = value.parts.map((part) => {
+        if (part.kind === "string") {
+          return part.value;
+        }
+        return `{{ ${emitScopedLiquidExpr(part, scope)} }}`;
+      });
+
+      return {
+        setup: [`{% capture ${variableName} %}${parts.join("")}{% endcapture %}`],
+        arg: `${propName}: ${variableName}`,
       };
     }
   }
 }
 
-function emitLiquidNode(node: Node, context: LiquidContext, indent = 0): string {
+export function emitLiquid(
+  node: Node,
+  indent = 0,
+  componentRegistry: BuildTemplate["componentRegistry"] = {},
+  scope: LiquidScope = createEmptyLiquidScope(),
+  options: TargetEmitOptions = {},
+): string {
+  const minify = options.minify ?? false;
+  const pad = minify ? "" : "  ".repeat(indent);
+  const joiner = minify ? "" : "\n";
+
   switch (node.kind) {
+    case "fragment":
+      return (node.children ?? [])
+        .map((child) => emitLiquid(child, indent, componentRegistry, scope, options))
+        .join(joiner);
+    case "doctype":
+      return `${pad}${node.value}`;
     case "text":
-      return `${pad(indent)}${node.value}`;
+      return `${pad}${node.value}`;
     case "slot":
-      return `${pad(indent)}{{ ${node.name} }}`;
-    case "print": {
-      const rendered = emitLiquidInterpolatedValue(node.expr, context, indent);
-      return [...rendered.prelude, `${pad(indent)}${rendered.source}`].join("\n");
-    }
+      return `${pad}${wrapLiquidOutput(
+        scope.bindings[node.name] ?? node.name,
+        node.name === "children" || scope.safeSlots.has(node.name),
+      )}`;
+    case "print":
+      return `${pad}${wrapLiquidOutput(
+        emitScopedLiquidExpr(node.expr, scope),
+        node.safe || (node.expr.kind === "var" && node.expr.name === "children"),
+      )}`;
     case "if": {
-      const condition = materializeLiquidBooleanExpr(node.test, context, indent);
-      const thenBody = node.then.map((child) => emitLiquidNode(child, context, indent + 1)).join("\n");
-      const elseBody = (node.else ?? [])
-        .map((child) => emitLiquidNode(child, context, indent + 1))
-        .join("\n");
-      const lines = [...condition.prelude, `${pad(indent)}{% if ${condition.source} %}`, thenBody];
-      if (elseBody) {
-        lines.push(`${pad(indent)}{% else %}`, elseBody);
+      const thenPart = node.then
+        .map((child) => emitLiquid(child, indent + 1, componentRegistry, scope, options))
+        .join(joiner);
+      const elsePart = (node.else ?? [])
+        .map((child) => emitLiquid(child, indent + 1, componentRegistry, scope, options))
+        .join(joiner);
+      if (elsePart) {
+        return `${pad}{% if ${emitScopedLiquidExpr(node.test, scope)} %}${joiner}${thenPart}${joiner}${pad}{% else %}${joiner}${elsePart}${joiner}${pad}{% endif %}`;
       }
-      lines.push(`${pad(indent)}{% endif %}`);
-      return lines.join("\n");
+      return `${pad}{% if ${emitScopedLiquidExpr(node.test, scope)} %}${joiner}${thenPart}${joiner}${pad}{% endif %}`;
     }
     case "for": {
-      const eachExpr = emitLiquidScalarExpr(node.each);
-      if (!eachExpr) {
-        throw new Error("Liquid target only supports scalar `each` expressions");
-      }
-      const body = node.children.map((child) => emitLiquidNode(child, context, indent + 1)).join("\n");
-      const lines = [`${pad(indent)}{% for ${node.item} in ${eachExpr} %}`];
-      if (node.indexName) {
-        lines.push(`${pad(indent + 1)}{% assign ${node.indexName} = forloop.index0 %}`);
-      }
-      if (body) {
-        lines.push(body);
-      }
-      lines.push(`${pad(indent)}{% endfor %}`);
-      return lines.join("\n");
+      const indexName = node.indexName ?? "__index";
+      const childScope = {
+        bindings: {
+          ...scope.bindings,
+          [node.item]: node.item,
+          [indexName]: "forloop.index0",
+        },
+        safeSlots: new Set(scope.safeSlots),
+      };
+      const body = node.children
+        .map((child) => emitLiquid(child, indent + 1, componentRegistry, childScope, options))
+        .join(joiner);
+      return `${pad}{% for ${node.item} in ${emitScopedLiquidExpr(node.each, scope)} %}${joiner}${body}${joiner}${pad}{% endfor %}`;
     }
     case "element": {
-      const prelude: string[] = [];
-      const attrEntries = Object.entries(node.attrs ?? {});
-      const attrs = attrEntries.map(([name, value]) => {
-        const rendered = emitLiquidAttr(name, value, context, indent);
-        prelude.push(...rendered.prelude);
-        return rendered.source;
-      });
-
-      const children = (node.children ?? []).map((child) => emitLiquidNode(child, context, indent + 1));
-      const tagName = emitInterpolatedTagName(node.tag, emitLiquidTagExpr);
-      const attrBlock = attrs.length
-        ? `\n${attrs.map((attr) => `${pad(indent + 1)}${attr}`).join("\n")}\n${pad(indent)}`
+      const attrEntries = Object.entries({
+        ...(node.attrs ?? {}),
+        ...(node.targetAttrs?.liquid ?? {}),
+      })
+        .map(([name, value]) => emitLiquidAttr(name, value, scope))
+        .filter((value) => value.length > 0);
+      const attrs = attrEntries.length
+        ? minify
+          ? ` ${attrEntries.join(" ")}`
+          : `\n${attrEntries.map((value) => `${pad}  ${value}`).join("\n")}\n${pad}`
         : "";
+      const children = (node.children ?? []).map((child) =>
+        emitLiquid(child, indent + 1, componentRegistry, scope, options),
+      );
+
+      const tagName = emitInterpolatedTagName(node.tag, (expr) => emitScopedLiquidExpr(expr, scope));
 
       if (children.length === 0) {
-        return [...prelude, `${pad(indent)}<${tagName}${attrBlock} />`].join("\n");
+        if (node.tag.kind === "static" && isVoidHtmlElement(node.tag.name)) {
+          return `${pad}<${tagName}${attrs}/>`;
+        }
+        return `${pad}<${tagName}${attrs}></${tagName}>`;
       }
 
-      return [
-        ...prelude,
-        `${pad(indent)}<${tagName}${attrBlock}>`,
-        ...children,
-        `${pad(indent)}</${tagName}>`,
-      ].join("\n");
+      return `${pad}<${tagName}${attrs}>${joiner}${children.join(joiner)}${joiner}${pad}</${tagName}>`;
     }
     case "component": {
-      const registration = contextTemplateRegistry.get(context)?.[node.name];
-      if (!registration?.liquidSnippet) {
+      const registration = componentRegistry[node.name];
+      if (!registration) {
         throw new Error(`Missing Liquid component registration for ${node.name}`);
       }
 
-      const prelude: string[] = [];
+      const setupLines: string[] = [];
       const args: string[] = [];
 
-      for (const [propName, propValue] of Object.entries(node.props ?? {})) {
-        const rendered = emitLiquidComponentPropValue(propValue, context, indent);
-        prelude.push(...rendered.prelude);
-        args.push(`${propName}: ${rendered.source}`);
+      for (const [propName, propValue] of Object.entries({
+        ...(node.props ?? {}),
+        ...(node.targetAttrs?.liquid ?? {}),
+      })) {
+        const emitted = emitLiquidRenderArgValue(propName, propValue, scope);
+        setupLines.push(...emitted.setup.map((line) => `${pad}${line}`));
+        args.push(emitted.arg);
       }
 
       if ((node.children ?? []).length > 0) {
-        const childrenVar = nextTempName(context, "children_html");
-        prelude.push(`${pad(indent)}{% capture ${childrenVar} %}`);
-        prelude.push(
-          ...(node.children ?? []).map((child) => emitLiquidNode(child, context, indent + 1)),
+        setupLines.push(`${pad}{% capture children %}`);
+        setupLines.push(
+          ...(node.children ?? []).map((child) =>
+            emitLiquid(child, indent + 1, componentRegistry, scope, options),
+          ),
         );
-        prelude.push(`${pad(indent)}{% endcapture %}`);
-        args.push(`children_html: ${childrenVar}`);
+        setupLines.push(`${pad}{% endcapture %}`);
+        args.push("children: children");
       }
 
       const renderArgs = args.length > 0 ? `, ${args.join(", ")}` : "";
-      return [
-        ...prelude,
-        `${pad(indent)}{% render '${registration.liquidSnippet}'${renderArgs} %}`,
-      ].join("\n");
+      setupLines.push(`${pad}{% render '${registration.liquidSnippet}'${renderArgs} %}`);
+      return setupLines.join(joiner);
     }
   }
 }
 
-const contextTemplateRegistry = new WeakMap<LiquidContext, BuildTemplate["componentRegistry"]>();
-
-export function emitLiquidSnippet(template: BuildTemplate): string {
-  const context: LiquidContext = { tempId: 0 };
-  contextTemplateRegistry.set(context, template.componentRegistry ?? {});
-  return `${emitLiquidNode(template.template, context, 0)}\n`;
+export function emitLiquidTemplate(
+  template: BuildTemplate,
+  options: TargetEmitOptions = {},
+): string {
+  return emitLiquid(
+    template.template,
+    0,
+    template.componentRegistry ?? {},
+    createLiquidRootScope(template),
+    options,
+  );
 }

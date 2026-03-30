@@ -2,10 +2,11 @@ import type { AttrValue, Node } from "../core/ast.js";
 import type { BuildTemplate } from "../core/types.js";
 import { buildTsxComponentSource, emitTsxExpr, emitTsxNode, emitTsxWithHoists } from "./shared.js";
 
-/**
- * Emits TSX meant to read more statically by inlining class string interpolation.
- */
-function emitStaticJsxAttr(name: string, value: AttrValue): string {
+function emitStaticJsxAttr(name: string, value: AttrValue): string | null {
+  if (name.includes("@") || name.includes(":")) {
+    return null;
+  }
+
   const attrName = name === "class" ? "className" : name;
 
   switch (value.kind) {
@@ -39,11 +40,19 @@ function emitStaticJsxAttr(name: string, value: AttrValue): string {
   }
 }
 
-export function emitStaticJsx(node: Node, indent = 0): string {
-  return emitTsxNode(node, emitStaticJsxAttr, indent);
+export function emitStaticJsx(
+  node: Node,
+  indent = 0,
+  context?: Parameters<typeof emitTsxNode>[4],
+): string {
+  return emitTsxNode(node, emitStaticJsxAttr, indent, "jsx-static", context);
 }
 
 export function emitStaticJsxComponent(template: BuildTemplate): string {
-  const { body, hoists } = emitTsxWithHoists(template, emitTsxNode, emitStaticJsxAttr);
+  const { body, hoists } = emitTsxWithHoists(
+    template,
+    (node, _emitAttr, indent, context) => emitStaticJsx(node, indent, context),
+    emitStaticJsxAttr,
+  );
   return buildTsxComponentSource(template, body, hoists);
 }
