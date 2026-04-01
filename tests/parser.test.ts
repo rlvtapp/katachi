@@ -5,7 +5,7 @@ import { parseTemplateFile } from "../src/core/parser";
 
 test("parseTemplateFile lowers components, control flow, slots, class lists, and helpers", () => {
   const source = `
-import { If, For, isNone, isSome, len, type TemplateNode } from "@relevate/katachi";
+import { If, For, isNone, isSome, length, type TemplateNode } from "@relevate/katachi";
 import Icon from "./icon.template";
 
 export type Props = {
@@ -23,7 +23,7 @@ export default function Example({ variant, rows, message, fallback, children }: 
       <If test={variant == "warning" && isSome(message)}>
         <p>{message}</p>
       </If>
-      <If test={len(rows) == 0}>
+      <If test={length(rows) == 0}>
         <p>Empty</p>
       </If>
       <If test={isNone(fallback)}>
@@ -104,7 +104,7 @@ export default function Example({ variant, rows, message, fallback, children }: 
   }
   assert.equal(emptyState.test.left.kind, "intrinsic");
   if (emptyState.test.left.kind !== "intrinsic") {
-    throw new Error("expected len intrinsic");
+    throw new Error("expected length intrinsic");
   }
   assert.equal(emptyState.test.left.name, "len");
 
@@ -135,6 +135,41 @@ export default function Example({ variant, rows, message, fallback, children }: 
     throw new Error("expected loop print");
   }
   assert.equal(loop.children[0].children[0].safe, true);
+});
+
+test("parseTemplateFile supports For render-function children", () => {
+  const parsed = parseTemplateFile(`
+export type Props = {
+  rows: string[];
+};
+
+export default function Example({ rows }: Props) {
+  return (
+    <div>
+      <For each={rows}>
+        {(row, i) => (
+          <span data-index={i}>{row}</span>
+        )}
+      </For>
+    </div>
+  );
+}
+`);
+
+  assert.equal(parsed.template.kind, "element");
+  if (parsed.template.kind !== "element") {
+    throw new Error("expected root element");
+  }
+
+  const loop = parsed.template.children?.[0];
+  assert.ok(loop && loop.kind === "for");
+  if (!loop || loop.kind !== "for") {
+    throw new Error("expected for node");
+  }
+
+  assert.equal(loop.item, "row");
+  assert.equal(loop.indexName, "i");
+  assert.equal(loop.children[0]?.kind, "element");
 });
 
 test("parseTemplateFile accepts one-line JSX returns", () => {

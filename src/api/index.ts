@@ -21,16 +21,33 @@ export type TemplateNode =
   | undefined
   | TemplateNode[];
 
+export type TemplateTargetName = "react" | "jsx-static" | "askama" | "liquid";
+
+export type TemplateTargetAttrValue = string | number | boolean | null | undefined;
+
+export type TemplateTargetAttrMap = Record<string, TemplateTargetAttrValue>;
+
+export type TemplateTargetAttrs = Partial<Record<TemplateTargetName, TemplateTargetAttrMap>>;
+
 export type IfProps = {
   test: unknown;
   children?: TemplateNode;
 };
 
-export type ForProps<T = unknown> = {
+export type ElseProps = {
+  children?: TemplateNode;
+};
+
+export type ForAliasProps<T = unknown> = {
   each: readonly T[] | T[] | null | undefined;
   as: string;
   index?: string;
   children?: TemplateNode;
+};
+
+export type ForRenderProps<T = unknown> = {
+  each: readonly T[] | T[] | null | undefined;
+  children: (item: T, index: number) => TemplateNode;
 };
 
 /**
@@ -42,17 +59,27 @@ export function If(_props: IfProps): TemplateNode {
 }
 
 /**
+ * Placeholder runtime export for template files. Parsed specially as the else
+ * branch inside a surrounding <If>.
+ */
+export function Else(_props: ElseProps): TemplateNode {
+  return null;
+}
+
+/**
  * Placeholder runtime export for template files. The compiler reads source
  * templates directly and never evaluates this function during normal use.
  */
-export function For<T>(_props: ForProps<T>): TemplateNode {
+export function For<T>(_props: ForRenderProps<T>): TemplateNode;
+export function For<T>(_props: ForAliasProps<T>): TemplateNode;
+export function For<T>(_props: ForRenderProps<T> | ForAliasProps<T>): TemplateNode {
   return null;
 }
 
 /**
  * Portable length helper for Katachi templates.
  */
-export function len(
+export function length(
   value: { length: number } | string | readonly unknown[] | null | undefined,
 ): number {
   return value?.length ?? 0;

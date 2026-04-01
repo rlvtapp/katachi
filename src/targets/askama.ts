@@ -16,21 +16,96 @@ import {
   wrapHtmlAttribute,
 } from "./shared.js";
 
-type AskamaScope = Record<string, string>;
+interface AskamaBinding {
+  rustName: string;
+  optionalStringLike?: boolean;
+}
+
+type AskamaScope = Record<string, AskamaBinding>;
+
+function isOptionalStringLikeProp(prop: BuildTemplate["props"][number]): boolean {
+  return prop.optional && (
+    prop.type === "string" ||
+    prop.type === "children" ||
+    prop.type === "template-node"
+  );
+}
 
 function createAskamaRootScope(template: BuildTemplate): AskamaScope {
   return Object.fromEntries(
-    (template.props ?? []).map((prop) => [prop.name, toSnakeCase(prop.name)]),
+    (template.props ?? []).map((prop) => [
+      prop.name,
+      {
+        rustName: toSnakeCase(prop.name),
+        optionalStringLike: isOptionalStringLikeProp(prop),
+      },
+    ]),
   );
 }
 
 function emitScopedAskamaExpr(expr: Expr, scope: AskamaScope): string {
   const base = emitAskamaExpr(expr);
 
-  return Object.entries(scope).reduce((current, [name, replacement]) => {
-    const pattern = new RegExp(`\\b${name}\\b`, "g");
-    return current.replace(pattern, replacement);
+  return Object.entries(scope).reduce((current, [name, binding]) => {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(^|[^A-Za-z0-9_])(${escapedName})(?=$|[^A-Za-z0-9_])`, "g");
+    const replaced = current.replace(
+      pattern,
+      (_match, prefix: string) => `${prefix}${binding.rustName}`,
+    );
+
+    if (!binding.optionalStringLike) {
+      return replaced;
+    }
+
+    return replaced
+      .replace(
+        new RegExp(`\\b${binding.rustName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.is_some\\(\\)`, "g"),
+        `!(${binding.rustName}.is_empty())`,
+      )
+      .replace(
+        new RegExp(`\\b${binding.rustName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.is_none\\(\\)`, "g"),
+        `${binding.rustName}.is_empty()`,
+      );
   }, base);
+}
+
+function emitScopedAskamaCondition(expr: Expr, scope: AskamaScope): string {
+  if (expr.kind === "var") {
+    const binding = scope[expr.name];
+    if (binding?.optionalStringLike) {
+      return `!(${binding.rustName}.is_empty())`;
+    }
+  }
+
+  return emitScopedAskamaExpr(expr, scope);
+}
+
+function emitAskamaComponentPropExpr(expr: Expr, scope: AskamaScope): string {
+  if (expr.kind === "var") {
+    const binding = scope[expr.name];
+    if (binding?.optionalStringLike) {
+      return `${binding.rustName}.value.as_str()`;
+    }
+  }
+
+  if (expr.kind === "raw") {
+    const normalized = expr.source.trim();
+    const directBinding = scope[normalized];
+    if (directBinding?.optionalStringLike) {
+      return `${directBinding.rustName}.value.as_str()`;
+    }
+
+    const match = normalized.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\?\?\s*(['"])\2$/);
+    if (match) {
+      const binding = scope[match[1] ?? ""];
+      if (binding?.optionalStringLike) {
+        return `${binding.rustName}.value.as_str()`;
+      }
+    }
+  }
+
+  return emitScopedAskamaExpr(expr, scope);
 }
 
 /**
@@ -48,7 +123,7 @@ function emitAskamaAttr(name: string, value: AttrValue, scope: AskamaScope): str
       return `${normalizedName}=${wrapHtmlAttribute(value.value)}`;
     case "expr":
       if (isBooleanAttribute) {
-        return `{% if ${emitScopedAskamaExpr(value.expr, scope)} %}${normalizedName}{% endif %}`;
+        return `{% if ${emitScopedAskamaCondition(value.expr, scope)} %}${normalizedName}{% endif %}`;
       }
       return `${normalizedName}=${wrapHtmlAttribute(`{{ ${emitScopedAskamaExpr(value.expr, scope)} }}`)}`;
     case "classList": {
@@ -59,11 +134,11 @@ function emitAskamaAttr(name: string, value: AttrValue, scope: AskamaScope): str
           continue;
         }
         if (item.kind === "dynamic") {
-          parts.push(`{{ ${emitAskamaExpr(item.expr)} }}`);
+          parts.push(`{{ ${emitScopedAskamaExpr(item.expr, scope)} }}`);
           continue;
         }
 
-        parts.push(`{% if ${emitScopedAskamaExpr(item.test, scope)} %}${item.value}{% endif %}`);
+        parts.push(`{% if ${emitScopedAskamaCondition(item.test, scope)} %}${item.value}{% endif %}`);
       }
 
       return `${normalizedName}=${wrapHtmlAttribute(parts.join(" ").trim())}`;
@@ -73,9 +148,9 @@ function emitAskamaAttr(name: string, value: AttrValue, scope: AskamaScope): str
         if (part.kind === "string") {
           return part.value;
         }
-        return `{{ ${emitAskamaExpr(part)} }}`;
+        return `{{ ${emitScopedAskamaExpr(part, scope)} }}`;
       });
-      return `${name}=${wrapHtmlAttribute(segments.join(""))}`;
+      return `${normalizedName}=${wrapHtmlAttribute(segments.join(""))}`;
     }
   }
 }
@@ -103,8 +178,10 @@ export function emitAskama(
       return `${pad}${node.value}`;
     case "text":
       return `${pad}${node.value}`;
-    case "slot":
-      return `${pad}{{ ${scope[node.name] ?? toSnakeCase(node.name)}|safe }}`;
+    case "slot": {
+      const binding = scope[node.name];
+      return `${pad}{{ ${(binding?.rustName ?? toSnakeCase(node.name))}|safe }}`;
+    }
     case "print":
       return `${pad}{{ ${emitScopedAskamaExpr(node.expr, scope)}${node.safe ? "|safe" : ""} }}`;
     case "if": {
@@ -115,15 +192,17 @@ export function emitAskama(
         .map((child) => emitAskama(child, indent + 1, componentRegistry, scope, options))
         .join(joiner);
       if (elsePart) {
-        return `${pad}{% if ${emitScopedAskamaExpr(node.test, scope)} %}${joiner}${thenPart}${joiner}${pad}{% else %}${joiner}${elsePart}${joiner}${pad}{% endif %}`;
+        return `${pad}{% if ${emitScopedAskamaCondition(node.test, scope)} %}${joiner}${thenPart}${joiner}${pad}{% else %}${joiner}${elsePart}${joiner}${pad}{% endif %}`;
       }
-      return `${pad}{% if ${emitScopedAskamaExpr(node.test, scope)} %}${joiner}${thenPart}${joiner}${pad}{% endif %}`;
+      return `${pad}{% if ${emitScopedAskamaCondition(node.test, scope)} %}${joiner}${thenPart}${joiner}${pad}{% endif %}`;
     }
     case "for": {
       const loopItemName = toSnakeCase(node.item);
-      const childScope = node.indexName
-        ? { ...scope, [node.item]: loopItemName, [node.indexName]: "loop.index0" }
-        : { ...scope, [node.item]: loopItemName };
+      const childScope = {
+        ...scope,
+        [node.item]: { rustName: loopItemName },
+        [node.indexName ?? "__index"]: { rustName: "loop.index0" },
+      };
       const body = node.children
         .map((child) => emitAskama(child, indent + 1, componentRegistry, childScope, options))
         .join(joiner);
@@ -174,7 +253,7 @@ export function emitAskama(
           continue;
         }
         if (propValue.kind === "expr") {
-          lines.push(`${pad}{% set ${askamaPropName} = ${emitScopedAskamaExpr(propValue.expr, scope)} %}`);
+          lines.push(`${pad}{% set ${askamaPropName} = ${emitAskamaComponentPropExpr(propValue.expr, scope)} %}`);
           continue;
         }
         throw new Error(

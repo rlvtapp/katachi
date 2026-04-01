@@ -36,6 +36,7 @@ export interface ParsedTemplate {
   fileName: string;
   imports: TemplateImport[];
   props: TemplateProp[];
+  supportingTypes: string[];
   template: Node;
 }
 
