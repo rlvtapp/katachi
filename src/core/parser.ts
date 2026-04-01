@@ -44,6 +44,7 @@ type ParsedValueType =
   | "template-node[][]";
 
 type VarTypeMap = Record<string, ParsedValueType>;
+type TypeDefinitionMap = Record<string, Record<string, string>>;
 
 /**
  * Handwritten parser for Katachi's current restricted TSX subset.
@@ -338,7 +339,7 @@ function parseExpr(source: string): Expr {
 
   const call = parseTopLevelCall(input);
   if (call && call.args.length === 1) {
-    if (call.name === "len") {
+    if (call.name === "length") {
       return intrinsic("len", parseExpr(call.args[0] ?? ""));
     }
     if (call.name === "isEmpty") {
@@ -483,7 +484,11 @@ function parseTargetAttrObject(source: string): Record<string, AttrValue> {
     const nameSource = entry.slice(0, colonIndex).trim();
     const valueSource = entry.slice(colonIndex + 1).trim();
     const attrName = unquote(nameSource);
-    attrs[attrName] = parseAttrValue(attrName, valueSource);
+    attrs[attrName] =
+      (valueSource.startsWith('"') && valueSource.endsWith('"')) ||
+      (valueSource.startsWith("'") && valueSource.endsWith("'"))
+        ? textAttr(unquote(valueSource))
+        : exprAttr(parseExpr(valueSource));
   }
 
   return attrs;
@@ -745,11 +750,181 @@ function splitIfBranches(nodes: Node[]): { thenNodes: Node[]; elseNodes: Node[] 
   };
 }
 
+function inferLoopVarTypes(
+  each: Expr,
+  item: string,
+  indexName: string | null,
+  varTypes: VarTypeMap,
+  typeDefinitions: TypeDefinitionMap,
+): VarTypeMap {
+  const loopVarTypes = { ...varTypes };
+  if (each.kind === "var") {
+    const eachType = resolveExprType(each.name, varTypes, typeDefinitions);
+    if (eachType === "string[]") loopVarTypes[item] = "string";
+    if (eachType === "string[][]") loopVarTypes[item] = "string[]";
+    if (eachType === "template-node[]") loopVarTypes[item] = "template-node";
+    if (eachType === "template-node[][]") loopVarTypes[item] = "template-node[]";
+    if (typeof eachType === "string" && eachType.endsWith("[]")) {
+      loopVarTypes[item] = eachType.slice(0, -2) as ParsedValueType;
+    }
+  }
+  if (indexName) {
+    loopVarTypes[indexName] = "number";
+  }
+  return loopVarTypes;
+}
+
+function parseForRenderFunction(
+  expr: Expr,
+  each: Expr,
+  varTypes: VarTypeMap,
+  typeDefinitions: TypeDefinitionMap,
+): { item: string; indexName: string | null; children: Node[] } | null {
+  if (expr.kind !== "raw") {
+    return null;
+  }
+
+  const arrowIndex = findTopLevelOperator(expr.source, "=>");
+  if (arrowIndex === -1) {
+    return null;
+  }
+
+  const paramsSource = expr.source.slice(0, arrowIndex).trim();
+  const bodySource = expr.source.slice(arrowIndex + 2).trim();
+
+  let params: string[] = [];
+  if (paramsSource.startsWith("(") && paramsSource.endsWith(")")) {
+    params = splitTopLevel(paramsSource.slice(1, -1), ",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  } else if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(paramsSource)) {
+    params = [paramsSource];
+  }
+
+  if (params.length < 1 || params.length > 2) {
+    return null;
+  }
+
+  const [item, indexName = null] = params;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(item) || (indexName && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(indexName))) {
+    return null;
+  }
+
+  let markup = bodySource;
+  if (markup.startsWith("(")) {
+    const section = readBalancedSection(markup, 0, "(", ")");
+    markup = section.body.trim();
+  }
+
+  if (!markup.startsWith("<")) {
+    return null;
+  }
+
+  const loopVarTypes = inferLoopVarTypes(each, item, indexName, varTypes, typeDefinitions);
+  const parsedChildren = parseNodes(markup, 0, null, loopVarTypes, typeDefinitions);
+  return {
+    item,
+    indexName,
+    children: parsedChildren.nodes,
+  };
+}
+
+function parseObjectTypeFields(body: string): Record<string, string> {
+  return body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => splitTopLevel(line, ";"))
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((fields, entry) => {
+      const colonIndex = entry.indexOf(":");
+      if (colonIndex === -1) {
+        return fields;
+      }
+      const left = entry.slice(0, colonIndex).trim();
+      const right = entry.slice(colonIndex + 1).trim();
+      const optional = left.endsWith("?");
+      const name = optional ? left.slice(0, -1) : left;
+      if (name) {
+        fields[name] = right;
+      }
+      return fields;
+    }, {});
+}
+
+function parseTypeDefinitions(source: string): TypeDefinitionMap {
+  const definitions: TypeDefinitionMap = {};
+  const pattern = /(?:^|\n)\s*(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g;
+
+  for (const match of source.matchAll(pattern)) {
+    const name = match[1];
+    if (!name) {
+      continue;
+    }
+
+    const matchIndex = match.index ?? 0;
+    const typeIndex = source.indexOf(`type ${name}`, matchIndex);
+    const equalsIndex = source.indexOf("=", typeIndex);
+    if (typeIndex === -1 || equalsIndex === -1) {
+      continue;
+    }
+
+    const { body } = readTypeAliasBody(source, equalsIndex + 1);
+    const trimmedBody = body.trim();
+    if (!(trimmedBody.startsWith("{") && trimmedBody.endsWith("}"))) {
+      continue;
+    }
+
+    definitions[name] = parseObjectTypeFields(trimmedBody.slice(1, -1));
+  }
+
+  return definitions;
+}
+
+function resolveExprType(
+  name: string,
+  varTypes: VarTypeMap,
+  typeDefinitions: TypeDefinitionMap,
+): string | undefined {
+  const segments = name.split(".");
+  const baseName = segments.shift();
+  if (!baseName) {
+    return undefined;
+  }
+
+  let currentType = varTypes[baseName];
+  if (!currentType) {
+    return undefined;
+  }
+
+  for (const segment of segments) {
+    if (typeof currentType !== "string") {
+      return undefined;
+    }
+
+    const normalizedCurrentType = currentType.trim();
+    if (normalizedCurrentType.endsWith("[]")) {
+      return undefined;
+    }
+
+    const fields = typeDefinitions[normalizedCurrentType];
+    if (!fields) {
+      return undefined;
+    }
+
+    currentType = normalizePropType(segment, fields[segment] ?? "") as ParsedValueType;
+  }
+
+  return currentType;
+}
+
 function parseNodes(
   source: string,
   startIndex = 0,
   untilTagName: string | null = null,
   varTypes: VarTypeMap = {},
+  typeDefinitions: TypeDefinitionMap = {},
 ): ParseNodesResult {
   const nodes: Node[] = [];
   let index = startIndex;
@@ -782,7 +957,7 @@ function parseNodes(
           continue;
         }
 
-        const parsedChildren = parseNodes(source, index, "", varTypes);
+        const parsedChildren = parseNodes(source, index, "", varTypes, typeDefinitions);
         index = parsedChildren.nextIndex;
         nodes.push(fragmentNode(parsedChildren.nodes));
         continue;
@@ -805,7 +980,7 @@ function parseNodes(
       }
 
       if (tagName === "if" || tagName === "If") {
-        const parsedChildren = parseNodes(source, index, tagName, varTypes);
+        const parsedChildren = parseNodes(source, index, tagName, varTypes, typeDefinitions);
         index = parsedChildren.nextIndex;
         const test = attrs.test?.kind === "expr" ? attrs.test.expr : null;
         if (!test) {
@@ -818,29 +993,52 @@ function parseNodes(
 
       if (tagName === "for" || tagName === "For") {
         const each = attrs.each?.kind === "expr" ? attrs.each.expr : null;
+        if (!each) {
+          throw new Error("<For> requires `each={...}`");
+        }
         const item = attrs.as?.kind === "text" ? attrs.as.value : null;
         const indexName = attrs.index?.kind === "text" ? attrs.index.value : null;
-        if (!each || !item) {
-          throw new Error('<For> requires `each={...}` and `as="..."`');
+
+        if (item) {
+          const loopVarTypes = inferLoopVarTypes(
+            each,
+            item,
+            indexName,
+            varTypes,
+            typeDefinitions,
+          );
+          const parsedChildren = parseNodes(
+            source,
+            index,
+            tagName,
+            loopVarTypes,
+            typeDefinitions,
+          );
+          index = parsedChildren.nextIndex;
+          nodes.push(forNode(item, each, parsedChildren.nodes, indexName));
+          continue;
         }
-        const loopVarTypes = { ...varTypes };
-        if (each.kind === "var") {
-          const eachType = varTypes[each.name];
-          if (eachType === "string[]") loopVarTypes[item] = "string";
-          if (eachType === "string[][]") loopVarTypes[item] = "string[]";
-          if (eachType === "template-node[]") loopVarTypes[item] = "template-node";
-          if (eachType === "template-node[][]") loopVarTypes[item] = "template-node[]";
-        }
-        const parsedChildren = parseNodes(source, index, tagName, loopVarTypes);
+
+        const parsedChildren = parseNodes(source, index, tagName, varTypes, typeDefinitions);
         index = parsedChildren.nextIndex;
-        nodes.push(forNode(item, each, parsedChildren.nodes, indexName));
-        continue;
+        const renderFn =
+          parsedChildren.nodes.length === 1 &&
+          parsedChildren.nodes[0]?.kind === "print"
+            ? parseForRenderFunction(parsedChildren.nodes[0].expr, each, varTypes, typeDefinitions)
+            : null;
+        if (renderFn) {
+          nodes.push(forNode(renderFn.item, each, renderFn.children, renderFn.indexName));
+          continue;
+        }
+        if (!item) {
+          throw new Error('<For> requires either `as="..."` or a render function child like `{(item) => (...)}`');
+        }
       }
 
       const parsedChildren =
         tagName === "script" || tagName === "style"
           ? readRawTagContent(source, index, tagName)
-          : parseNodes(source, index, tagName, varTypes);
+          : parseNodes(source, index, tagName, varTypes, typeDefinitions);
       index = parsedChildren.nextIndex;
 
       if (tagName === "Element") {
@@ -883,7 +1081,8 @@ function parseNodes(
           const expr = parseExpr(inner);
           const isSafePrint =
             expr.kind === "var" &&
-            (varTypes[expr.name] === "template-node" || varTypes[expr.name] === "children");
+            (resolveExprType(expr.name, varTypes, typeDefinitions) === "template-node" ||
+              resolveExprType(expr.name, varTypes, typeDefinitions) === "children");
           nodes.push(printNode(expr, isSafePrint));
         }
       }
@@ -1082,7 +1281,7 @@ function parseLocalComponents(source: string, defaultName: string): Map<string, 
     const bodyStart = source.indexOf("{", paramsSection.nextIndex);
     const bodySection = readBalancedSection(source, bodyStart, "{", "}");
     const markup = extractReturnMarkup(bodySection.body, 0);
-    const parsed = parseNodes(markup);
+  const parsed = parseNodes(markup);
     const template =
       parsed.nodes.length === 1 ? parsed.nodes[0] : fragmentNode(parsed.nodes);
 
@@ -1356,12 +1555,19 @@ function normalizePropType(name: string, type: string): ParsedValueType | string
 }
 
 function parseProps(source: string): TemplateProp[] {
-  const propsMatch = source.match(/export\s+type\s+Props\s*=\s*\{([\s\S]*?)\}/);
-  if (!propsMatch) {
+  const propsTypeIndex = source.search(/export\s+type\s+Props\s*=/);
+  if (propsTypeIndex === -1) {
     return [];
   }
 
-  return propsMatch[1]
+  const openBraceIndex = source.indexOf("{", propsTypeIndex);
+  if (openBraceIndex === -1) {
+    return [];
+  }
+
+  const propsSection = readBalancedSection(source, openBraceIndex, "{", "}");
+
+  return propsSection.body
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -1381,6 +1587,85 @@ function parseProps(source: string): TemplateProp[] {
         optional,
       };
     });
+}
+
+function readTypeAliasBody(source: string, startIndex: number): { body: string; nextIndex: number } {
+  let index = startIndex;
+  let quote: string | null = null;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  let angleDepth = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const prev = index > 0 ? source[index - 1] : "";
+
+    if (quote) {
+      if (char === quote && prev !== "\\") {
+        quote = null;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      index += 1;
+      continue;
+    }
+
+    if (char === "{") braceDepth += 1;
+    if (char === "}") braceDepth = Math.max(0, braceDepth - 1);
+    if (char === "[") bracketDepth += 1;
+    if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+    if (char === "(") parenDepth += 1;
+    if (char === ")") parenDepth = Math.max(0, parenDepth - 1);
+    if (char === "<") angleDepth += 1;
+    if (char === ">") angleDepth = Math.max(0, angleDepth - 1);
+
+    if (
+      char === ";" &&
+      braceDepth === 0 &&
+      bracketDepth === 0 &&
+      parenDepth === 0 &&
+      angleDepth === 0
+    ) {
+      return {
+        body: source.slice(startIndex, index).trim(),
+        nextIndex: index + 1,
+      };
+    }
+
+    index += 1;
+  }
+
+  throw new Error("Unterminated type alias");
+}
+
+function parseSupportingTypes(source: string): string[] {
+  const supportingTypes: string[] = [];
+  const pattern = /(?:^|\n)\s*(export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g;
+
+  for (const match of source.matchAll(pattern)) {
+    const name = match[2];
+    if (!name || name === "Props") {
+      continue;
+    }
+
+    const matchIndex = match.index ?? 0;
+    const exportPrefix = match[1] ?? "";
+    const typeIndex = source.indexOf(`${exportPrefix}type ${name}`, matchIndex);
+    const equalsIndex = source.indexOf("=", typeIndex);
+    if (typeIndex === -1 || equalsIndex === -1) {
+      continue;
+    }
+
+    const { body } = readTypeAliasBody(source, equalsIndex + 1);
+    supportingTypes.push(`${exportPrefix}type ${name} = ${body};`);
+  }
+
+  return supportingTypes;
 }
 
 function parseImports(source: string): TemplateImport[] {
@@ -1405,13 +1690,15 @@ export function parseTemplateFile(source: string): ParsedTemplate {
   }
 
   const props = parseProps(source);
+  const typeDefinitions = parseTypeDefinitions(source);
+  const supportingTypes = parseSupportingTypes(source);
   const localComponents = parseLocalComponents(source, nameMatch[1]);
   const markup = extractReturnMarkup(source, source.indexOf(nameMatch[0]));
 
   const varTypes = Object.fromEntries(
     props.map((prop) => [prop.name, prop.type as ParsedValueType]),
   );
-  const parsed = parseNodes(markup, 0, null, varTypes);
+  const parsed = parseNodes(markup, 0, null, varTypes, typeDefinitions);
   const name = nameMatch[1];
   const baseTemplate =
     parsed.nodes.length === 1 ? parsed.nodes[0] : fragmentNode(parsed.nodes);
@@ -1424,6 +1711,7 @@ export function parseTemplateFile(source: string): ParsedTemplate {
     fileName: name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(),
     imports,
     props,
+    supportingTypes,
     template,
   };
 }

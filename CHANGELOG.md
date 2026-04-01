@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-04-01
+
+### Added
+
+- Callback-child `For` support with proper item and index inference in template authoring
+- Public `Else` export for editor-visible template imports
+- Public target-attribute typing for `attrs`, including `react`, `jsx-static`, `askama`, and `liquid`
+- Public `length(...)` helper for TS-friendlier template authoring
+- JSX typing for `attrs` so custom target overrides are recognized in template files
+
+### Changed
+
+- `For` typings now infer callback parameters from `each`, so `T[]` inputs produce strongly typed loop items
+- Alias-style `For as="..."` parsing now applies inferred loop variable types while parsing children
+- Askama emission now handles several Phase/docs-compiler compatibility cases more reliably, including loop indices, scoped component props, nullable/raw expressions, and `length(...)` inside translated raw expressions
+- Askama emission now normalizes more raw fallback expressions, including `length(...)` in nested/indexed expressions
+- React and TSX output now preserve supporting local type aliases referenced by template props
+- Nested prop parsing is more robust for object-shaped prop types, avoiding dropped props later in a `Props` declaration
+- Generated slot and template-node handling is more reliable across React and Askama outputs
+- Nested property-chain type resolution now allows `TemplateNode` safety inference through local aliases such as `item.group.content`
+- Documentation now prefers `length(...)` as the portable length helper in authoring syntax
+
+### Fixed
+
+- A parser bug where alias-style `For` loops lost `TemplateNode` safety inference inside loop bodies
+- Invalid Askama output from optional chaining, null checks, and JS-style expressions leaking into generated templates
+- Askama generation issues around `className` scoping, implicit `__index`, and target-specific component props
+- Askama component prop emission now borrows optional string-like values correctly for include-based components
+- Target-specific/raw attribute emission is more reliable for Alpine-style attributes in Askama output
+- Editor/typecheck friction around `Else` and target-specific `attrs`
+- Escaped-text regressions where nested `TemplateNode` values could render literally instead of as markup in Askama
+- Phase theme generation issues that previously required post-generation template fixes in `docs-compiler`
+
 ## [0.3.0] - 2026-03-27
 
 ### Added

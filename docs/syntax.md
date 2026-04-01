@@ -21,7 +21,7 @@ A template file should export:
 Example:
 
 ```tsx
-import { For, If, isEmpty, len, type TemplateNode } from "@relevate/katachi";
+import { For, If, isEmpty, length, type TemplateNode } from "@relevate/katachi";
 
 export type Props = {
   title: string;
@@ -36,7 +36,7 @@ export default function Example({ title, rows, children }: Props) {
       <For each={rows} as="row">
         <div>{row[0]}</div>
       </For>
-      <If test={len(rows) == 0}>
+      <If test={length(rows) == 0}>
         <p>Empty</p>
       </If>
       {children}
@@ -188,9 +188,9 @@ export default function Layout() {
 Use Katachi's portable helpers instead of target-specific template methods.
 
 ```tsx
-import { If, isEmpty, isNone, isSome, len } from "@relevate/katachi";
+import { If, isEmpty, isNone, isSome, length } from "@relevate/katachi";
 
-<If test={len(rows) == 0}>
+<If test={length(rows) == 0}>
   <p>Empty</p>
 </If>
 
@@ -261,7 +261,7 @@ Best-effort passthrough currently exists for some Rust-ish expressions:
 These are migration shims for existing Askama-style templates. Prefer the
 portable helpers in new Katachi templates:
 
-- `len(value)`
+- `length(value)`
 - `isEmpty(value)`
 - `isSome(value)`
 - `isNone(value)`
@@ -274,7 +274,7 @@ portable helpers in new Katachi templates:
 - `TemplateNode`
 - `If`
 - `For`
-- `len`
+- `length`
 - `isEmpty`
 - `isSome`
 - `isNone`

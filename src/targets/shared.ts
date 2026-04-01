@@ -35,12 +35,19 @@ function translateRustExprToTsx(source: string): string {
 
 function translateTsxExprToAskama(source: string): string {
   return source
+    .replace(/\?\./g, ".")
+    .replace(/\blength\(\s*([A-Za-z_][A-Za-z0-9_.[\]]*)\s*\)/g, "$1.len()")
+    .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*\?\?\s*(?:\[\s*\]|""|'')/g, "$1")
     .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*!==\s*null\b/g, "$1.is_some()")
     .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*!=\s*null\b/g, "$1.is_some()")
     .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*===\s*null\b/g, "$1.is_none()")
     .replace(/\b([A-Za-z_][A-Za-z0-9_.[\]]*)\s*==\s*null\b/g, "$1.is_none()")
     .replace(/\s===\s/g, " == ")
     .replace(/\s!==\s/g, " != ");
+}
+
+function normalizeAskamaRawExpr(source: string): string {
+  return source.replace(/\blength\(\s*([A-Za-z_][A-Za-z0-9_.[\]]*)\s*\)/g, "$1.len()");
 }
 
 export function emitTsxExpr(expr: Expr): string {
@@ -84,6 +91,10 @@ export function emitTsxExpr(expr: Expr): string {
   }
 }
 
+function isNullExpr(expr: Expr): boolean {
+  return expr.kind === "var" && expr.name === "null";
+}
+
 export function emitAskamaExpr(expr: Expr): string {
   switch (expr.kind) {
     case "var":
@@ -111,10 +122,22 @@ export function emitAskamaExpr(expr: Expr): string {
       }
     }
     case "raw":
-      return translateTsxExprToAskama(expr.source);
+      return normalizeAskamaRawExpr(translateTsxExprToAskama(expr.source));
     case "eq":
+      if (isNullExpr(expr.left)) {
+        return `${emitAskamaExpr(expr.right)}.is_none()`;
+      }
+      if (isNullExpr(expr.right)) {
+        return `${emitAskamaExpr(expr.left)}.is_none()`;
+      }
       return `${emitAskamaExpr(expr.left)} == ${emitAskamaExpr(expr.right)}`;
     case "neq":
+      if (isNullExpr(expr.left)) {
+        return `${emitAskamaExpr(expr.right)}.is_some()`;
+      }
+      if (isNullExpr(expr.right)) {
+        return `${emitAskamaExpr(expr.left)}.is_some()`;
+      }
       return `${emitAskamaExpr(expr.left)} != ${emitAskamaExpr(expr.right)}`;
     case "and":
       return `${emitAskamaExpr(expr.left)} && ${emitAskamaExpr(expr.right)}`;
@@ -566,10 +589,12 @@ export function buildTsxComponentSource(
   );
   const destructuredProps = props.map((prop) => prop.name).join(", ");
   const componentImports = buildTsxImportLines(template);
+  const supportingTypesBlock = (template.supportingTypes ?? []).join("\n\n");
   const needsElementType = astUsesDynamicElement(template.template) || hoists.length > 0;
 
   return `import { Fragment, ${needsElementType ? "type ElementType, " : ""}type ReactNode } from "react";
 ${componentImports ? `${componentImports}\n` : ""}
+${supportingTypesBlock ? `\n${supportingTypesBlock}\n` : ""}
 
 export type ${propsTypeName} = {
 ${propLines.join("\n")}
@@ -595,6 +620,7 @@ export function buildReactComponentSource(
   );
   const destructuredProps = props.map((prop) => prop.name).join(", ");
   const componentImports = buildTsxImportLines(template);
+  const supportingTypesBlock = (template.supportingTypes ?? []).join("\n\n");
 
   const needsReactNode = props.some(
     (prop) =>
@@ -631,6 +657,7 @@ export function buildReactComponentSource(
 
   return `${importLine}
 ${componentImports ? `${componentImports}\n` : ""}
+${supportingTypesBlock ? `\n${supportingTypesBlock}\n` : ""}
 
 export type ${propsTypeName} = {
 ${propLines.join("\n")}

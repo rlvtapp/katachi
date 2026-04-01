@@ -1,4 +1,4 @@
-import type { ClassValue, TemplateNode } from "./index.js";
+import type { ClassValue, TemplateNode, TemplateTargetAttrs } from "./index.js";
 
 declare global {
   namespace JSX {
@@ -12,11 +12,16 @@ declare global {
       children: {};
     }
 
+    interface IntrinsicAttributes {
+      attrs?: TemplateTargetAttrs;
+    }
+
     interface IntrinsicElements {
       [elemName: string]: {
         children?: TemplateNode;
         class?: ClassValue;
         className?: ClassValue;
+        attrs?: TemplateTargetAttrs;
         [attrName: string]: unknown;
       };
     }

@@ -84,6 +84,41 @@ export default function Example({ title_html, cells, grid, children }: Props) {
   assert.doesNotMatch(output, /template-node/);
 });
 
+test("React emitter preserves supporting local type aliases referenced by props", () => {
+  const template = buildTemplate(`
+type TocItem = {
+  title: string;
+  anchor: string;
+};
+
+type PageNavigationLink = {
+  href: string;
+  title: string;
+};
+
+export type Props = {
+  table_of_contents: TocItem[];
+  previous?: PageNavigationLink;
+};
+
+export default function Example({ table_of_contents, previous }: Props) {
+  return (
+    <section>
+      <div>{table_of_contents[0]?.title}</div>
+      <div>{previous?.title}</div>
+    </section>
+  );
+}
+`);
+
+  const output = emitReactComponent(template);
+
+  assert.match(output, /type TocItem = \{\s*title: string;\s*anchor: string;\s*\};/s);
+  assert.match(output, /type PageNavigationLink = \{\s*href: string;\s*title: string;\s*\};/s);
+  assert.match(output, /table_of_contents: TocItem\[\];/);
+  assert.match(output, /previous\?: PageNavigationLink;/);
+});
+
 test("static JSX emitter prefers template literal class assembly", () => {
   const template = buildTemplate(`
 export type Props = {
@@ -143,6 +178,35 @@ export default function Example({ items }: Props) {
 
   assert.match(reactOutput, /<Fragment key=\{__index\}>/);
   assert.match(reactOutput, /<li>/);
+});
+
+test("For render-function children lower across React and Askama", () => {
+  const template = buildTemplate(`
+export type Props = {
+  items: string[];
+};
+
+export default function Example({ items }: Props) {
+  return (
+    <ul>
+      <For each={items}>
+        {(item, i) => (
+          <li data-index={i}>{item}</li>
+        )}
+      </For>
+    </ul>
+  );
+}
+`);
+
+  const reactOutput = emitReactComponent(template);
+  const askamaOutput = emitAskamaPartial(template);
+
+  assert.match(reactOutput, /\(items \?\? \[\]\)\.map\(\(item, i\) =>/);
+  assert.match(reactOutput, /data-index=\{i\}/);
+  assert.match(askamaOutput, /{% for item in items %}/);
+  assert.match(askamaOutput, /data-index='{{ loop\.index0 }}'/);
+  assert.match(askamaOutput, /{{ item }}/);
 });
 
 test("target-specific attrs merge into the requested output only", () => {
@@ -221,6 +285,43 @@ export default function Callout({ label, children }: Props) {
   assert.match(output, /{% set size = "16" %}/);
   assert.match(output, /{% include "\.\/includes\/icon\.html" %}/);
   assert.match(output, /{{ children\|safe }}/);
+});
+
+test("Askama emitter rewrites implicit loop indices, scoped component props, and nullable raw expressions", () => {
+  const template = buildTemplate(`
+import Icon from "./icon.template";
+
+export type Props = {
+  items: string[];
+  previous?: { href: string; title: string };
+  className: string;
+};
+
+export default function Example({ items, previous, className }: Props) {
+  return (
+    <div>
+      <For each={items} as="item">
+        <span>{__index}</span>
+      </For>
+      <Icon icon="search" className={className} />
+      <If test={previous != null}>
+        <a href={previous?.href} data-title={previous?.title ?? ""}>Prev</a>
+      </If>
+    </div>
+  );
+}
+`);
+
+  const output = emitAskamaPartial(template);
+
+  assert.match(output, /{{ loop\.index0 }}/);
+  assert.match(output, /{% set class_name = class_name %}/);
+  assert.match(output, /{% if previous\.is_some\(\) %}/);
+  assert.match(output, /href='{{ previous\.href }}'/);
+  assert.match(output, /data-title='{{ previous\.title }}'/);
+  assert.doesNotMatch(output, /\?\./);
+  assert.doesNotMatch(output, /\?\?/);
+  assert.doesNotMatch(output, /__index/);
 });
 
 test("Liquid emitter preserves native attrs and lowers imported components to render tags", () => {
@@ -374,7 +475,7 @@ export default function Example({ icon }: Props) {
 
 test("portable helpers lower to Askama and React target syntax", () => {
   const template = buildTemplate(`
-import { If, isEmpty, isNone, isSome, len, type TemplateNode } from "@relevate/katachi";
+import { If, isEmpty, isNone, isSome, length, type TemplateNode } from "@relevate/katachi";
 
 export type Props = {
   items: string[];
@@ -386,7 +487,7 @@ export type Props = {
 export default function Example({ items, label, errorMessage, children }: Props) {
   return (
     <section>
-      <If test={len(items) == 0}>
+      <If test={length(items) == 0}>
         <p>Empty</p>
       </If>
       <If test={isSome(label) && !isEmpty(label)}>
@@ -408,8 +509,8 @@ export default function Example({ items, label, errorMessage, children }: Props)
   assert.match(reactOutput, /\(label != null\) && !\(\(\(label\?\.length \?\? 0\) === 0\)\)/);
   assert.match(reactOutput, /\(errorMessage == null\)/);
   assert.match(askamaOutput, /{% if items\.len\(\) == 0 %}/);
-  assert.match(askamaOutput, /{% if label\.is_some\(\) && !\(label\.is_empty\(\)\) %}/);
-  assert.match(askamaOutput, /{% if error_message\.is_none\(\) %}/);
+  assert.match(askamaOutput, /{% if !\(label\.is_empty\(\)\) && !\(label\.is_empty\(\)\) %}/);
+  assert.match(askamaOutput, /{% if error_message\.is_empty\(\) %}/);
 });
 
 test("dynamic Element tags lower across React, static JSX, Askama, and Liquid", () => {
