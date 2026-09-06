@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 
+import { loadKatachiConfig } from "../config.js";
 import { buildProject } from "../core/build.js";
 import { verifyAskamaFixtures } from "../core/verify.js";
 import { basicExampleRoot, createExampleFixtures, exampleFixtures } from "../core/example-fixtures.js";
@@ -10,6 +11,7 @@ type Command = "build" | "verify:askama" | "verify:examples" | "help";
 interface CliOptions {
   command: Command;
   projectRoot?: string;
+  configFile?: string;
   distDir?: string;
   templatesDir?: string;
   targets?: string[];
@@ -21,12 +23,13 @@ function printHelp(): void {
   console.log(`Katachi
 
 Usage:
-  katachi build [--project <dir>] [--templates <dir>] [--dist <dir>] [--target <name>]... [--askama-prefix <path>] [--minify]
+  katachi build [--project <dir>] [--config <file>] [--templates <dir>] [--dist <dir>] [--target <name>]... [--askama-prefix <path>] [--minify]
   katachi verify:examples
   katachi help
 
 Defaults:
   --project   current working directory
+  --config    katachi.config.ts in the project root
   --templates <project>/src/templates
   --dist      <project>/dist
 
@@ -50,6 +53,12 @@ function parseArgs(argv: string[]): CliOptions {
 
     if (current === "--project" && next) {
       options.projectRoot = resolve(next);
+      index += 1;
+      continue;
+    }
+
+    if (current === "--config" && next) {
+      options.configFile = next;
       index += 1;
       continue;
     }
@@ -90,7 +99,7 @@ function parseArgs(argv: string[]): CliOptions {
   return options;
 }
 
-function run(): void {
+async function run(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
 
   if (options.command === "help") {
@@ -99,8 +108,14 @@ function run(): void {
   }
 
   if (options.command === "build") {
+    const projectRoot = options.projectRoot ?? process.cwd();
+    const { config } = await loadKatachiConfig({
+      projectRoot,
+      configFile: options.configFile,
+    });
     buildProject({
-      projectRoot: options.projectRoot,
+      config,
+      projectRoot,
       templatesDir: options.templatesDir,
       distDir: options.distDir,
       targets: options.targets,
@@ -113,8 +128,13 @@ function run(): void {
   if (options.command === "verify:examples" || options.command === "verify:askama") {
     const projectRoot = options.projectRoot ?? basicExampleRoot;
     const distDir = options.distDir ?? resolve(projectRoot, "dist");
+    const { config } = await loadKatachiConfig({
+      projectRoot,
+      configFile: options.configFile,
+    });
 
     buildProject({
+      config,
       projectRoot,
       templatesDir: options.templatesDir,
       distDir,
@@ -132,4 +152,7 @@ function run(): void {
 
 }
 
-run();
+run().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});

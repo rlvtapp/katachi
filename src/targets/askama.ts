@@ -1,6 +1,9 @@
 import { basename, dirname, join } from "node:path/posix";
 
 import type { AttrValue, Expr, Node } from "../core/ast.js";
+import {
+  shouldMergeClassList,
+} from "../core/class-names.js";
 import type { BuildTemplate, TargetEmitOptions } from "../core/types.js";
 import {
   isBooleanHtmlAttribute,
@@ -111,7 +114,12 @@ function emitAskamaComponentPropExpr(expr: Expr, scope: AskamaScope): string {
 /**
  * Emits an HTML attribute for Askama output.
  */
-function emitAskamaAttr(name: string, value: AttrValue, scope: AskamaScope): string {
+function emitAskamaAttr(
+  name: string,
+  value: AttrValue,
+  scope: AskamaScope,
+  options: TargetEmitOptions = {},
+): string {
   const normalizedName = normalizeHtmlAttributeName(name);
   const isBooleanAttribute = isBooleanHtmlAttribute(normalizedName);
 
@@ -127,21 +135,30 @@ function emitAskamaAttr(name: string, value: AttrValue, scope: AskamaScope): str
       }
       return `${normalizedName}=${wrapHtmlAttribute(`{{ ${emitScopedAskamaExpr(value.expr, scope)} }}`)}`;
     case "classList": {
-      const parts: string[] = [];
-      for (const item of value.items) {
-        if (item.kind === "static") {
-          parts.push(item.value);
-          continue;
-        }
-        if (item.kind === "dynamic") {
-          parts.push(`{{ ${emitScopedAskamaExpr(item.expr, scope)} }}`);
-          continue;
-        }
+      const emitItems = (items: typeof value.items): string => {
+        const parts: string[] = [];
+        for (const item of items) {
+          if (item.kind === "static") {
+            parts.push(item.value);
+            continue;
+          }
+          if (item.kind === "dynamic") {
+            parts.push(`{{ ${emitScopedAskamaExpr(item.expr, scope)} }}`);
+            continue;
+          }
 
-        parts.push(`{% if ${emitScopedAskamaCondition(item.test, scope)} %}${item.value}{% endif %}`);
+          parts.push(`{% if ${emitScopedAskamaCondition(item.test, scope)} %}${item.value}{% endif %}`);
+        }
+        return parts.join(" ").trim();
+      };
+      const classes = emitItems(value.items);
+      if (!shouldMergeClassList(value, options.classNames)) {
+        return `${normalizedName}=${wrapHtmlAttribute(classes)}`;
       }
 
-      return `${normalizedName}=${wrapHtmlAttribute(parts.join(" ").trim())}`;
+      const filter = options.classNames?.askama?.filter ?? "tw_merge";
+      const filtered = `{% filter ${filter} %}${classes}{% endfilter %}`;
+      return `${normalizedName}=${wrapHtmlAttribute(filtered)}`;
     }
     case "concat": {
       const segments = value.parts.map((part) => {
@@ -214,7 +231,7 @@ export function emitAskama(
         ...(node.targetAttrs?.askama ?? {}),
       });
       const emittedAttrs = attrEntries
-        .map(([name, value]) => emitAskamaAttr(name, value, scope))
+        .map(([name, value]) => emitAskamaAttr(name, value, scope, options))
         .filter((value) => value.length > 0);
       const attrs = emittedAttrs.length
         ? minify
@@ -298,7 +315,10 @@ function optionsAwareAskamaTemplatePath(template: BuildTemplate): string {
 /**
  * Emits the Rust `Template` wrapper for Askama consumption.
  */
-export function emitAskamaComponent(template: BuildTemplate): string {
+export function emitAskamaComponent(
+  template: BuildTemplate,
+  options: TargetEmitOptions = {},
+): string {
   const structName = `${template.name}Template`;
   const props = template.props ?? [];
   const needsLifetime = props.some((prop) => toRustType(prop.type).includes("'a"));
@@ -308,9 +328,12 @@ export function emitAskamaComponent(template: BuildTemplate): string {
     .join("\n");
   const includePath = optionsAwareAskamaTemplatePath(template);
 
-  return `use askama::Template;
+  const filtersImport = options.classNames?.askama?.filtersModule
+    ? `#[allow(unused_imports)]\nuse ${options.classNames.askama.filtersModule} as filters;\n`
+    : "";
+  const filtersBlock = filtersImport ? `${filtersImport}\n` : "\n";
 
-#[derive(Template)]
+  return `use askama::Template;\n${filtersBlock}#[derive(Template)]
 #[template(
     ext = "html",
     path = "${includePath}"

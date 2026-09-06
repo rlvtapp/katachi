@@ -8,6 +8,7 @@ It includes:
 - authoring templates in `src/templates/`
 - a `tsconfig.json` that adds `@relevate/katachi/jsx` to `compilerOptions.types`
 - expected Askama partials in `components/`
+- a typed `katachi.config.ts` with target selection and dynamic class merging
 
 The example templates intentionally cover a useful slice of normal Katachi
 usage:
@@ -15,6 +16,7 @@ usage:
 - simple wrappers with `children`
 - imported nested components
 - dynamic `className` arrays
+- consumer `className` overrides on `NoticePanel`
 - `If`
 - nested `For`
 - `TemplateNode` content slots
@@ -65,3 +67,15 @@ The important parts to copy into your own project are:
 - `tsconfig.json`
 - the `@relevate/katachi/jsx` type entry
 - your chosen `katachi build` command
+
+## Class merging in this example
+
+`NoticePanel` appends its optional `className` prop to the authored defaults.
+The example config enables `dynamic-only`, so React and static JSX output call
+`twMerge` only for that customizable class array. Install `tailwind-merge` in a
+JavaScript consumer.
+
+The Askama config expects a `merge_classes` filter exported by
+`crate::theme::class_names`. A consuming Rust crate owns that implementation;
+see [Custom classes](../../docs/class-names.md) for a complete filter using
+`tw_merge`.

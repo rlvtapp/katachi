@@ -1,5 +1,5 @@
 <aside
-  class='rounded-3xl border px-5 py-4 backdrop-blur-sm {% if tone == "calm" %}border-sky-200 bg-sky-50/80{% endif %} {% if tone == "urgent" %}border-rose-200 bg-rose-50/80{% endif %} {% if tone == "success" %}border-emerald-200 bg-emerald-50/80{% endif %}'
+  class='{% filter merge_classes %}rounded-3xl border px-5 py-4 backdrop-blur-sm {% if tone == "calm" %}border-sky-200 bg-sky-50/80{% endif %} {% if tone == "urgent" %}border-rose-200 bg-rose-50/80{% endif %} {% if tone == "success" %}border-emerald-200 bg-emerald-50/80{% endif %} {{ class_name }}{% endfilter %}'
 >
   <div
     class='flex items-start gap-3'

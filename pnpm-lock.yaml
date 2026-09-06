@@ -7,13 +7,17 @@ settings:
 importers:
 
   .:
+    dependencies:
+      tailwind-merge:
+        specifier: '>=3.0.0'
+        version: 3.6.0
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
     devDependencies:
       '@types/node':
         specifier: ^22.19.15
         version: 22.19.15
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -195,6 +199,9 @@ packages:
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
+  tailwind-merge@3.6.0:
+    resolution: {integrity: sha512-uxL7qAVQriqRQPAyK3pj66VqskWqoZ37PW94jwOTwNfq/z9oyu1V+eqrZqtR2+fCiXdYOZe/Modt8GtvqNzu+w==}
+
   tsx@4.21.0:
     resolution: {integrity: sha512-5C1sg4USs1lfG0GFb2RLXsdpXqBSEhAaA/0kPL01wxzpMqLILNxIxIOKiILz+cdg/pLnOUxFYOR5yhHU666wbw==}
     engines: {node: '>=18.0.0'}
@@ -329,6 +336,8 @@ snapshots:
       resolve-pkg-maps: 1.0.0
 
   resolve-pkg-maps@1.0.0: {}
+
+  tailwind-merge@3.6.0: {}
 
   tsx@4.21.0:
     dependencies:

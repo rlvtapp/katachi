@@ -12,11 +12,11 @@ export const outputTargets: OutputTarget[] = [
     id: "react",
     outputSubdir: "react",
     extension: ".tsx",
-    emitFiles(template) {
+    emitFiles(template, options) {
       return [
         {
           fileName: `${template.fileName}.tsx`,
-          content: `${emitReactComponent(template)}\n`,
+          content: `${emitReactComponent(template, options)}\n`,
         },
       ];
     },
@@ -25,11 +25,11 @@ export const outputTargets: OutputTarget[] = [
     id: "jsx-static",
     outputSubdir: "jsx-static",
     extension: ".tsx",
-    emitFiles(template) {
+    emitFiles(template, options) {
       return [
         {
           fileName: `${template.fileName}.tsx`,
-          content: `${emitStaticJsxComponent(template)}\n`,
+          content: `${emitStaticJsxComponent(template, options)}\n`,
         },
       ];
     },
@@ -38,11 +38,11 @@ export const outputTargets: OutputTarget[] = [
     id: "askama",
     outputSubdir: "askama",
     extension: ".rs",
-    emitFiles(template) {
+    emitFiles(template, options) {
       return [
         {
           fileName: `${template.fileName}.rs`,
-          content: `${emitAskamaComponent(template)}\n`,
+          content: `${emitAskamaComponent(template, options)}\n`,
         },
       ];
     },

@@ -1,6 +1,17 @@
 export { buildProject } from "./core/build.js";
 export type { BuildProjectOptions, BuildProjectResult } from "./core/build.js";
 
+export { defineConfig, loadKatachiConfig } from "./config.js";
+export type {
+  ClassNameMergingConfig,
+  JavaScriptClassMergeFunction,
+  KatachiConfig,
+  KatachiTargetName,
+  LoadedKatachiConfig,
+  LoadKatachiConfigOptions,
+  TemplateInputConfig,
+} from "./config.js";
+
 export { parseTemplateFile } from "./core/parser.js";
 export { verifyAskamaFixtures, normalizeAskama } from "./core/verify.js";
 

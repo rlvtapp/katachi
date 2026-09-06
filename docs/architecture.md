@@ -65,6 +65,12 @@ Responsibilities:
 - mark `TemplateNode` and `children` prints as safe
 - resolve imported template components later during build
 
+Class arrays are stored as portable `classList` attributes. Target emitters
+then decide whether to join the entries normally or lower them to the configured
+class merger. `dynamic-only` is a compile-time selection rule: it selects lists
+containing the dynamic `className` prop, while the emitted merge call itself is
+unconditional.
+
 The parser is currently handwritten and string-based. That is fine for a prototype, but a stronger long-term direction is to parse real TSX via Babel, SWC, or the TypeScript compiler and then lower from that AST.
 
 ## Targets

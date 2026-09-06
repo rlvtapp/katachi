@@ -1,4 +1,5 @@
 import type { Node } from "./ast.js";
+import type { ClassNameMergingConfig } from "../config.js";
 
 /**
  * Describes a component import discovered in a template source file.
@@ -65,6 +66,7 @@ export interface TargetOutputFile {
 
 export interface TargetEmitOptions {
   minify?: boolean;
+  classNames?: ClassNameMergingConfig;
 }
 
 export interface BuildTargetSelection {

@@ -12,30 +12,37 @@ outputs in a real project.
 - output folder: `dist/react`
 - file type: `.tsx`
 - purpose: React-consumable component output for apps and editor environments
+- optional class merger: `tailwind-merge` by default, or a configured import
 
 ### `jsx-static`
 
 - output folder: `dist/jsx-static`
 - file type: `.tsx`
 - purpose: TSX output oriented toward static readability
+- optional class merger: `tailwind-merge` by default, or a configured import
 
 ### `askama`
 
 - output folder: `dist/askama`
 - file type: `.rs`
 - purpose: Rust Askama wrapper output
+- imports the configured class-filter module as `filters` when needed
 
 ### `askama-includes`
 
 - output folder: `dist/askama/includes`
 - file type: `.html`
 - purpose: Askama partial output
+- wraps enabled class arrays with the configured Askama filter
 
 ## Which output should you use?
 
 - Use `dist/react` if your consumer is a React app or an editor surface built in React.
 - Use `dist/jsx-static` if you want a TSX artifact that reads a bit more statically.
 - Use `dist/askama` and `dist/askama/includes` if your consumer is Rust + Askama.
+
+See [Custom classes](./class-names.md) for the exact React and Askama output
+generated when class merging is enabled.
 
 ## Relative imports and includes
 

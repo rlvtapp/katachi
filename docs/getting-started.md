@@ -126,6 +126,21 @@ You can also point Katachi at custom paths:
 pnpm exec katachi build --templates ./katachi/templates --dist ./generated
 ```
 
+For multiple input folders or persistent build settings, use a typed
+`katachi.config.ts`. See [configuration.md](./configuration.md).
+
+For example, this configuration keeps only the outputs used by a React and
+Askama application:
+
+```ts
+import { defineConfig } from "@relevate/katachi";
+
+export default defineConfig({
+  inputs: [{ directory: "src/templates" }],
+  targets: ["react", "askama", "askama-includes"],
+});
+```
+
 If you want compact Askama include and Liquid output, add:
 
 ```bash
@@ -156,6 +171,28 @@ If you are evaluating Katachi for a shared component library, this is the
 normal model: author once, then consume the generated output from each target
 environment.
 
+## Optional consumer classes
+
+To let a generated component accept Tailwind overrides, enable class merging
+and add `className` to its authored class array:
+
+```ts
+// katachi.config.ts
+export default defineConfig({
+  classNames: { mode: "dynamic-only" },
+});
+```
+
+```tsx
+export default function Card({ className }: { className?: string }) {
+  return <div className={["rounded-xl p-4", className]} />;
+}
+```
+
+React and static JSX use `tailwind-merge` by default. Askama needs a filter in
+the consuming crate. Follow [class-names.md](./class-names.md) for the complete
+setup.
+
 ## Nested components
 
 Import other Katachi templates with the `.template` path:
@@ -179,4 +216,6 @@ Katachi resolves those imports into:
 
 - See [syntax.md](./syntax.md) for the supported syntax.
 - See [targets.md](./targets.md) for output details.
+- See [class-names.md](./class-names.md) for customizable component classes.
+- See [migrating-to-0.5.md](./migrating-to-0.5.md) when upgrading from 0.4.
 - See [../examples/basic/README.md](../examples/basic/README.md) for a fuller consumer-style example.

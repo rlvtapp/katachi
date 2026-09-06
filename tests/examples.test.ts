@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 
+import { loadKatachiConfig } from "../src/config";
 import { buildProject } from "../src/core/build";
 import { basicExampleRoot, createExampleFixtures } from "../src/core/example-fixtures";
 import { verifyAskamaFixtures } from "../src/core/verify";
@@ -13,7 +14,7 @@ const silentLogger = {
   error() {},
 };
 
-test("public basic example builds all targets and matches Askama fixtures", () => {
+test("public basic example builds all targets and matches Askama fixtures", async () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "katachi-example-"));
   const copiedExampleRoot = join(tempRoot, "basic");
   const previousExitCode = process.exitCode;
@@ -21,7 +22,9 @@ test("public basic example builds all targets and matches Askama fixtures", () =
   try {
     cpSync(basicExampleRoot, copiedExampleRoot, { recursive: true });
 
+    const { config } = await loadKatachiConfig({ projectRoot: basicExampleRoot });
     const result = buildProject({
+      config,
       projectRoot: copiedExampleRoot,
       logger: silentLogger,
     });
@@ -45,7 +48,11 @@ test("public basic example builds all targets and matches Askama fixtures", () =
     const askamaResourceTile = readFileSync(askamaResourceTilePath, "utf8");
 
     assert.match(reactNoticePanel, /import Glyph from "\.\/glyph";/);
-    assert.match(reactNoticePanel, /className=\{\["rounded-3xl border px-5 py-4 backdrop-blur-sm"/);
+    assert.match(reactNoticePanel, /from "tailwind-merge";/);
+    assert.match(
+      reactNoticePanel,
+      /className=\{__katachiMergeClasses\("rounded-3xl border px-5 py-4 backdrop-blur-sm"/,
+    );
     assert.match(askamaResourceTile, /{% include "\.\/includes\/glyph\.html" %}/);
     assert.match(askamaResourceTile, /{{ title_html\|safe }}/);
 

@@ -99,6 +99,54 @@ export default function Card({ active, label, children }: Props) {
   }
 });
 
+test("buildProject selects files from configured input roots and output prefixes", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "katachi-inputs-"));
+
+  try {
+    const components = join(tempRoot, "components");
+    const layouts = join(tempRoot, "layouts");
+    const distDir = join(tempRoot, "generated");
+    mkdirSync(join(components, "nested"), { recursive: true });
+    mkdirSync(layouts, { recursive: true });
+
+    const template = (name: string) => `export type Props = {};
+export default function ${name}(_props: Props) { return <div>${name}</div>; }
+`;
+    writeFileSync(join(components, "card.template.tsx"), template("Card"));
+    writeFileSync(join(components, "nested", "draft.template.tsx"), template("Draft"));
+    writeFileSync(join(layouts, "page.template.tsx"), template("Page"));
+    writeFileSync(join(layouts, "ignored.tsx"), template("Ignored"));
+
+    const result = buildProject({
+      projectRoot: tempRoot,
+      config: {
+        outDir: "generated",
+        targets: ["react"],
+        inputs: [
+          {
+            directory: "components",
+            include: ["**/*.template.tsx"],
+            exclude: ["nested/**"],
+            outputPrefix: "ui",
+          },
+          {
+            directory: "layouts",
+            include: ["page.template.tsx"],
+          },
+        ],
+      },
+      logger: silentLogger,
+    });
+
+    assert.equal(result.templates.length, 2);
+    assert.ok(existsSync(join(distDir, "react", "ui", "card.tsx")));
+    assert.ok(existsSync(join(distDir, "react", "page.tsx")));
+    assert.equal(existsSync(join(distDir, "react", "ui", "nested", "draft.tsx")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("buildProject can minify Askama include and Liquid outputs", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "katachi-build-minify-"));
 

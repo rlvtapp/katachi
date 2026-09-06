@@ -219,6 +219,17 @@ Both `class` and `className` are supported in authoring input.
 
 This is Katachi syntax hosted in TSX. The compiler normalizes it and emits target-specific output.
 
+To allow callers to override conflicting defaults, add an optional `className`
+prop as the last array item and enable class merging in `katachi.config.ts`:
+
+```tsx
+export default function Card({ className }: { className?: string }) {
+  return <div className={["rounded-xl p-4", className]} />;
+}
+```
+
+See [Custom classes](./class-names.md) for configuration and generated output.
+
 ### Target-specific attrs
 
 Use `attrs` when a specific target needs extra attributes.

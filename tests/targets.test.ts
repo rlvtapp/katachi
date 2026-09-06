@@ -52,6 +52,63 @@ export default function Callout({ active, label, children }: Props) {
   assert.match(output, /<Icon/);
 });
 
+test("class merging is dynamic-only and supports custom React and Askama functions", () => {
+  const template = buildTemplate(`
+export type Props = {
+  active: boolean;
+  className?: string;
+};
+
+export default function Card({ active, className }: Props) {
+  return <div className={["rounded p-4", active && "flex", className]} />;
+}
+`);
+  const classNames = {
+    mode: "dynamic-only" as const,
+    react: { from: "./runtime/classes", import: "cn" },
+    askama: {
+      filter: "merge_classes",
+      filtersModule: "crate::theme_filters",
+    },
+  };
+
+  const react = emitReactComponent(template, { classNames });
+  const askama = emitAskamaPartial(template, { classNames });
+
+  assert.match(
+    react,
+    /import \{ cn as __katachiMergeClasses \} from "\.\/runtime\/classes";/,
+  );
+  assert.match(
+    react,
+    /className=\{__katachiMergeClasses\("rounded p-4", active \? "flex" : null, className\)\}/,
+  );
+  assert.match(askama, /{% filter merge_classes %}/);
+  assert.doesNotMatch(askama, /class_name\.is_empty/);
+
+  const askamaWrapper = emitAskamaComponent(template, { classNames });
+  assert.match(
+    askamaWrapper,
+    /use crate::theme_filters as filters;/,
+  );
+});
+
+test("dynamic-only class merging leaves unrelated conditional class lists unchanged", () => {
+  const template = buildTemplate(`
+export type Props = { active: boolean };
+export default function Card({ active }: Props) {
+  return <div className={["rounded p-4", active && "flex"]} />;
+}
+`);
+  const react = emitReactComponent(template, {
+    classNames: { mode: "dynamic-only" },
+  });
+
+  assert.doesNotMatch(react, /tailwind-merge/);
+  assert.doesNotMatch(react, /__katachiMergeClasses/);
+  assert.match(react, /\.filter\(Boolean\)\.join\(" "\)/);
+});
+
 test("React emitter maps TemplateNode prop types to ReactNode types", () => {
   const template = buildTemplate(`
 import type { TemplateNode } from "@relevate/katachi";

@@ -12,20 +12,26 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
-          cache: pnpm
+          node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Use an npm CLI with trusted publishing support
+        run: npm install --global npm@^11.5.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify release tag and package version
+        run: node scripts/verify-release-version.mjs "${{ github.event.release.tag_name }}"
 
       - name: Typecheck
         run: pnpm typecheck
@@ -36,5 +42,8 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify Askama fixtures
+        run: pnpm verify:askama
+
       - name: Publish to npm
-        run: pnpm publish --access public --provenance --no-git-checks
+        run: npm publish --access public

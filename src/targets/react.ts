@@ -1,5 +1,10 @@
 import type { AttrValue, Expr, Node } from "../core/ast.js";
-import type { BuildTemplate } from "../core/types.js";
+import {
+  javascriptClassMergeImport,
+  nodeUsesClassMerge,
+  shouldMergeClassList,
+} from "../core/class-names.js";
+import type { BuildTemplate, TargetEmitOptions } from "../core/types.js";
 import {
   buildReactComponentSource,
   emitReactNode,
@@ -190,7 +195,27 @@ function toReactAttrName(name: string): string {
   return HTML_TO_REACT_ATTR[name] ?? name;
 }
 
-function emitReactAttr(name: string, value: AttrValue): string | null {
+function emitReactClassItems(value: Extract<AttrValue, { kind: "classList" }>): string[] {
+  return value.items.map((item) => {
+    if (item.kind === "static") {
+      return JSON.stringify(item.value);
+    }
+    if (item.kind === "dynamic") {
+      return emitTsxExpr(item.expr);
+    }
+    return `${emitTsxExpr(item.test)} ? ${JSON.stringify(item.value)} : null`;
+  });
+}
+
+function emitJoinedReactClasses(items: string[]): string {
+  return `[${items.join(", ")}].filter(Boolean).join(" ")`;
+}
+
+function emitReactAttr(
+  name: string,
+  value: AttrValue,
+  options: TargetEmitOptions = {},
+): string | null {
   if (name.includes("@") || name.includes(":")) {
     return null;
   }
@@ -214,17 +239,12 @@ function emitReactAttr(name: string, value: AttrValue): string | null {
     case "expr":
       return `${attrName}={${emitTsxExpr(value.expr)}}`;
     case "classList": {
-      const items = value.items.map((item) => {
-        if (item.kind === "static") {
-          return JSON.stringify(item.value);
-        }
-        if (item.kind === "dynamic") {
-          return emitTsxExpr(item.expr);
-        }
-        return `${emitTsxExpr(item.test)} ? ${JSON.stringify(item.value)} : null`;
-      });
+      const items = emitReactClassItems(value);
+      if (!shouldMergeClassList(value, options.classNames)) {
+        return `${attrName}={${emitJoinedReactClasses(items)}}`;
+      }
 
-      return `${attrName}={[${items.join(", ")}].filter(Boolean).join(" ")}`;
+      return `${attrName}={__katachiMergeClasses(${items.join(", ")})}`;
     }
     case "concat":
       return `${attrName}={${emitConcatValue(value.parts, attrName)}}`;
@@ -235,11 +255,13 @@ export function emitReact(
   node: Node,
   indent = 0,
   context?: Parameters<typeof emitReactNode>[3],
+  options: TargetEmitOptions = {},
 ): string {
+  const emitAttr = (name: string, value: AttrValue) => emitReactAttr(name, value, options);
   if (indent === 2 && node.kind === "element" && node.tag.kind === "static" && node.tag.name === "body") {
     const pad = "  ".repeat(indent);
     const children = (node.children ?? []).map((child) =>
-      emitReactNode(child, emitReactAttr, indent + 1, context),
+      emitReactNode(child, emitAttr, indent + 1, context),
     );
 
     if (children.length === 0) {
@@ -249,14 +271,21 @@ export function emitReact(
     return `${pad}<>\n${children.join("\n")}\n${pad}</>`;
   }
 
-  return emitReactNode(node, emitReactAttr, indent, context);
+  return emitReactNode(node, emitAttr, indent, context);
 }
 
-export function emitReactComponent(template: BuildTemplate): string {
+export function emitReactComponent(
+  template: BuildTemplate,
+  options: TargetEmitOptions = {},
+): string {
+  const emitAttr = (name: string, value: AttrValue) => emitReactAttr(name, value, options);
   const { body, hoists } = emitTsxWithHoists(
     template,
-    (node, _emitAttr, indent, context) => emitReact(node, indent, context),
-    emitReactAttr,
+    (node, _emitAttr, indent, context) => emitReact(node, indent, context, options),
+    emitAttr,
   );
-  return buildReactComponentSource(template, body, hoists);
+  const additionalImports = nodeUsesClassMerge(template.template, options.classNames, "react")
+    ? [javascriptClassMergeImport(options.classNames, "react")]
+    : [];
+  return buildReactComponentSource(template, body, hoists, additionalImports);
 }

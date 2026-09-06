@@ -581,6 +581,7 @@ export function buildTsxComponentSource(
   template: BuildTemplate,
   body: string,
   hoists: string[] = [],
+  additionalImports: string[] = [],
 ): string {
   const props = template.props ?? [];
   const propsTypeName = `${template.name}Props`;
@@ -593,7 +594,7 @@ export function buildTsxComponentSource(
   const needsElementType = astUsesDynamicElement(template.template) || hoists.length > 0;
 
   return `import { Fragment, ${needsElementType ? "type ElementType, " : ""}type ReactNode } from "react";
-${componentImports ? `${componentImports}\n` : ""}
+${additionalImports.length > 0 ? `${additionalImports.join("\n")}\n` : ""}${componentImports ? `${componentImports}\n` : ""}
 ${supportingTypesBlock ? `\n${supportingTypesBlock}\n` : ""}
 
 export type ${propsTypeName} = {
@@ -612,6 +613,7 @@ export function buildReactComponentSource(
   template: BuildTemplate,
   body: string,
   hoists: string[] = [],
+  additionalImports: string[] = [],
 ): string {
   const props = template.props ?? [];
   const propsTypeName = `${template.name}Props`;
@@ -656,7 +658,7 @@ export function buildReactComponentSource(
   }
 
   return `${importLine}
-${componentImports ? `${componentImports}\n` : ""}
+${additionalImports.length > 0 ? `${additionalImports.join("\n")}\n` : ""}${componentImports ? `${componentImports}\n` : ""}
 ${supportingTypesBlock ? `\n${supportingTypesBlock}\n` : ""}
 
 export type ${propsTypeName} = {

@@ -88,6 +88,48 @@ If you want custom paths:
 pnpm exec katachi build --templates ./katachi/templates --dist ./generated
 ```
 
+For multiple template roots, include/exclude patterns, target settings, and
+optional class-name merging, add a typed `katachi.config.ts`:
+
+```ts
+import { defineConfig } from "@relevate/katachi";
+
+export default defineConfig({
+  inputs: [
+    {
+      directory: "src/components",
+      include: ["**/*.template.tsx"],
+      exclude: ["**/*.draft.template.tsx"],
+    },
+  ],
+  targets: ["react", "askama", "askama-includes"],
+});
+```
+
+See [Configuration](./docs/configuration.md) for all options and custom
+class-merging adapters.
+
+To let consumers override a component's Tailwind defaults, opt into class-name
+merging and include the `className` prop in the authored class array:
+
+```ts
+// katachi.config.ts
+import { defineConfig } from "@relevate/katachi";
+
+export default defineConfig({
+  classNames: { mode: "dynamic-only" },
+});
+```
+
+```tsx
+export default function Card({ className }: { className?: string }) {
+  return <div className={["rounded-xl p-4", className]} />;
+}
+```
+
+See [Custom classes](./docs/class-names.md) for the generated React and Askama
+output, dependency setup, and custom merge functions.
+
 If you want compact HTML-style output for the generated Askama include and Liquid files:
 
 ```bash
@@ -193,8 +235,11 @@ Katachi exists to make that possible: one authoring format, multiple outputs.
 ## Documentation
 
 - [Getting started](./docs/getting-started.md)
+- [Configuration](./docs/configuration.md)
+- [Custom classes](./docs/class-names.md)
 - [Template syntax](./docs/syntax.md)
 - [Target outputs](./docs/targets.md)
+- [Migrating to 0.5](./docs/migrating-to-0.5.md)
 - [Architecture](./docs/architecture.md)
 - [Consumer example](./examples/basic/README.md)
 

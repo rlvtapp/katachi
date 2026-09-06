@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+## [0.5.0] - 2026-09-06
+
+### Added
+
+- Typed `katachi.config.ts` files with automatic CLI discovery
+- Multiple template input roots with include/exclude globs and output prefixes
+- Optional class-name conflict merging for dynamic component overrides
+- Custom JavaScript merge-function imports and custom Askama merge filters
+
+### Changed
+
+- Build CLI flags now override matching project configuration values
+- Generated React, static JSX, and Askama components always invoke their configured merger when class-name merging applies; merge implementations handle an absent `className`
+
 ## [0.4.0] - 2026-04-01
 
 ### Added

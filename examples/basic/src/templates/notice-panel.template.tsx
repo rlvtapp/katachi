@@ -5,10 +5,11 @@ export type Props = {
   tone: "calm" | "urgent" | "success";
   title: string;
   icon: string;
+  className?: string;
   children?: TemplateNode;
 };
 
-export default function NoticePanel({ tone, title, icon, children }: Props) {
+export default function NoticePanel({ tone, title, icon, className, children }: Props) {
   return (
     <aside
       className={[
@@ -16,6 +17,7 @@ export default function NoticePanel({ tone, title, icon, children }: Props) {
         tone == "calm" && "border-sky-200 bg-sky-50/80",
         tone == "urgent" && "border-rose-200 bg-rose-50/80",
         tone == "success" && "border-emerald-200 bg-emerald-50/80",
+        className,
       ]}
     >
       <div className="flex items-start gap-3">
