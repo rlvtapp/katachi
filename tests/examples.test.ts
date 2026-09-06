@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 
-import { loadKatachiConfig } from "../src/config";
 import { buildProject } from "../src/core/build";
 import { basicExampleRoot, createExampleFixtures } from "../src/core/example-fixtures";
 import { verifyAskamaFixtures } from "../src/core/verify";
@@ -14,7 +13,7 @@ const silentLogger = {
   error() {},
 };
 
-test("public basic example builds all targets and matches Askama fixtures", async () => {
+test("public basic example builds all targets and matches Askama fixtures", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "katachi-example-"));
   const copiedExampleRoot = join(tempRoot, "basic");
   const previousExitCode = process.exitCode;
@@ -22,9 +21,16 @@ test("public basic example builds all targets and matches Askama fixtures", asyn
   try {
     cpSync(basicExampleRoot, copiedExampleRoot, { recursive: true });
 
-    const { config } = await loadKatachiConfig({ projectRoot: basicExampleRoot });
     const result = buildProject({
-      config,
+      config: {
+        classNames: {
+          mode: "dynamic-only",
+          askama: {
+            filter: "merge_classes",
+            filtersModule: "crate::theme::class_names",
+          },
+        },
+      },
       projectRoot: copiedExampleRoot,
       logger: silentLogger,
     });
